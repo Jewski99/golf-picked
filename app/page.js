@@ -567,3 +567,4 @@ function AuthForm({ supabase }) {
     </div>
   );
 }
+
