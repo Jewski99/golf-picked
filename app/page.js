@@ -205,7 +205,7 @@ export default function Home() {
                 <h2 className="text-lg font-bold text-white mb-1">
                   {currentEvent.name}
                 </h2>
-                <div className="flex flex-wrap gap-3 text-sm text-slate-300">
+                <div className="flex flex-wrap gap-3 text-sm text-white">
                   <span>📍 {currentEvent.location}</span>
                   <span>⛳ {currentEvent.course}</span>
                 </div>
@@ -268,8 +268,8 @@ export default function Home() {
                         }`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-medium text-white">{drafter.username}</span>
-                          <span className="text-sm text-slate-400">{picks.length}/4</span>
+                          <span className="font-medium text-white text-base">{drafter.username}</span>
+                          <span className="text-sm text-white">{picks.length}/4</span>
                         </div>
                         {isCurrent && (
                           <div className="mt-1 text-xs text-emerald-400 font-medium">
@@ -298,8 +298,8 @@ export default function Home() {
                       key={idx}
                       className="p-3 bg-slate-800 border border-slate-700 rounded-lg"
                     >
-                      <div className="font-medium text-white text-sm">{pick.player_name}</div>
-                      <div className="text-xs text-slate-400">Pick #{pick.pick_number}</div>
+                      <div className="font-medium text-white">{pick.player_name}</div>
+                      <div className="text-sm text-slate-300">Pick #{pick.pick_number}</div>
                     </div>
                   ))}
                   {[...Array(4 - myPicks.length)].map((_, idx) => (
@@ -346,8 +346,8 @@ export default function Home() {
                     >
                       <div className="flex items-center justify-between">
                         <div>
-                          <div className="font-medium text-white text-sm">{player.name}</div>
-                          <div className="text-xs text-slate-400">{player.country}</div>
+                          <div className="font-medium text-white">{player.name}</div>
+                          <div className="text-sm text-slate-300">{player.country}</div>
                         </div>
                         {isMyTurn && !isDraftComplete && (
                           <span className="text-emerald-400 text-lg">+</span>
@@ -381,42 +381,42 @@ export default function Home() {
               <table className="w-full">
                 <thead className="bg-slate-800">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Pos</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Player</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-slate-300 uppercase hidden sm:table-cell">Score</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-slate-300 uppercase hidden sm:table-cell">Today</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-slate-300 uppercase">Earnings</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Pos</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Player</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-white uppercase hidden sm:table-cell">Score</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-white uppercase hidden sm:table-cell">Today</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-white uppercase">Earnings</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700">
                   {filteredLeaderboard.map((entry, idx) => (
                     <tr key={idx} className="hover:bg-slate-800/50">
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-white font-medium text-sm">{entry.position}</span>
+                        <span className="text-white font-medium">{entry.position}</span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="text-white font-medium text-sm">{entry.player?.name}</div>
+                        <div className="text-white font-medium">{entry.player?.name}</div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-center hidden sm:table-cell">
-                        <span className={`font-bold text-sm ${
+                        <span className={`font-bold ${
                           entry.score?.total < 0 ? 'text-red-400' :
                           entry.score?.total > 0 ? 'text-white' :
-                          'text-slate-400'
+                          'text-white'
                         }`}>
                           {entry.score?.total > 0 ? '+' : ''}{entry.score?.total || 'E'}
                         </span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-center hidden sm:table-cell">
-                        <span className={`text-sm ${
+                        <span className={` ${
                           entry.score?.today < 0 ? 'text-red-400' :
                           entry.score?.today > 0 ? 'text-white' :
-                          'text-slate-400'
+                          'text-white'
                         }`}>
                           {entry.score?.today > 0 ? '+' : ''}{entry.score?.today || 'E'}
                         </span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <span className="text-emerald-400 font-medium text-sm">
+                        <span className="text-emerald-400 font-medium">
                           ${entry.earnings?.toLocaleString() || '0'}
                         </span>
                       </td>
