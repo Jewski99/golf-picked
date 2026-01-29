@@ -146,8 +146,8 @@ export default function Home() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-800 flex items-center justify-center">
-        <div className="text-emerald-400 text-xl">Loading...</div>
+      <div style={{ minHeight: '100vh', background: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: '#10b981', fontSize: '20px' }}>Loading...</div>
       </div>
     );
   }
@@ -175,20 +175,28 @@ export default function Home() {
   const isDraftComplete = draftPicks.length >= draftOrder.length * 4;
 
   return (
-    <div className="min-h-screen bg-slate-800">
+    <div style={{ minHeight: '100vh', background: '#1e293b', color: '#ffffff' }}>
       {/* Header */}
-      <header className="bg-slate-900 border-b border-slate-700 sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <header style={{ background: '#0f172a', borderBottom: '1px solid #334155', position: 'sticky', top: 0, zIndex: 50 }}>
+        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '12px 16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
             <div>
-              <h1 className="text-2xl font-bold text-emerald-400">
+              <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: '#10b981' }}>
                 Golf Pick&apos;em League
               </h1>
-              <p className="text-slate-400 text-xs">2026 PGA Tour Season</p>
+              <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>2026 PGA Tour Season</p>
             </div>
             <button
               onClick={() => supabase.auth.signOut()}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm transition-colors"
+              style={{
+                padding: '8px 16px',
+                background: '#334155',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '14px'
+              }}
             >
               Sign Out
             </button>
@@ -198,46 +206,37 @@ export default function Home() {
 
       {/* Event Selector */}
       {currentEvent && (
-        <div className="container mx-auto px-4 py-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-lg p-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="flex-1">
-                <h2 className="text-lg font-bold text-white mb-1">
-                  {currentEvent.name}
-                </h2>
-                <div className="flex flex-wrap gap-3 text-sm text-white">
-                  <span>📍 {currentEvent.location}</span>
-                  <span>⛳ {currentEvent.course}</span>
-                </div>
-              </div>
-              {events.length > 1 && (
-                <select
-                  value={currentEvent.id}
-                  onChange={(e) => setCurrentEvent(events.find(ev => ev.id === e.target.value))}
-                  className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
-                >
-                  {events.map(event => (
-                    <option key={event.id} value={event.id}>{event.name}</option>
-                  ))}
-                </select>
-              )}
+        <div style={{ maxWidth: '1200px', margin: '16px auto', padding: '0 16px' }}>
+          <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px' }}>
+            <h2 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 'bold', color: '#ffffff' }}>
+              {currentEvent.name}
+            </h2>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '14px', color: '#ffffff' }}>
+              <span>📍 {currentEvent.location}</span>
+              <span>⛳ {currentEvent.course}</span>
             </div>
           </div>
         </div>
       )}
 
       {/* Tabs */}
-      <div className="container mx-auto px-4 mb-4">
-        <div className="flex gap-2 bg-slate-900 p-1 rounded-lg border border-slate-700">
+      <div style={{ maxWidth: '1200px', margin: '16px auto', padding: '0 16px' }}>
+        <div style={{ display: 'flex', gap: '8px', background: '#0f172a', padding: '4px', borderRadius: '8px', border: '1px solid #334155' }}>
           {['draft', 'leaderboard', 'standings'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-2 px-3 rounded-md font-medium transition-all text-sm ${
-                activeTab === tab
-                  ? 'bg-emerald-600 text-white'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800'
-              }`}
+              style={{
+                flex: 1,
+                padding: '10px 12px',
+                background: activeTab === tab ? '#10b981' : 'transparent',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontWeight: activeTab === tab ? 'bold' : 'normal',
+                fontSize: '14px'
+              }}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
             </button>
@@ -246,81 +245,84 @@ export default function Home() {
       </div>
 
       {/* Content */}
-      <div className="container mx-auto px-4 pb-8">
+      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 16px 32px' }}>
         {activeTab === 'draft' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Draft Order & My Picks */}
-            <div className="lg:col-span-1 space-y-4">
-              {/* Draft Order */}
-              <div className="bg-slate-900 border border-slate-700 rounded-lg p-4">
-                <h3 className="text-lg font-bold text-white mb-3">Draft Order</h3>
-                <div className="space-y-2">
-                  {draftOrder.map((drafter, idx) => {
-                    const picks = draftPicks.filter(p => p.user_id === drafter.user_id);
-                    const isCurrent = idx === pickIndex && !isDraftComplete;
-                    return (
-                      <div
-                        key={drafter.user_id}
-                        className={`p-3 rounded-lg border transition-all ${
-                          isCurrent
-                            ? 'bg-emerald-900/30 border-emerald-500'
-                            : 'bg-slate-800 border-slate-700'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium text-white text-base">{drafter.username}</span>
-                          <span className="text-sm text-white">{picks.length}/4</span>
-                        </div>
-                        {isCurrent && (
-                          <div className="mt-1 text-xs text-emerald-400 font-medium">
-                            ON THE CLOCK
-                          </div>
-                        )}
+          <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth >= 1024 ? '1fr 2fr' : '1fr', gap: '16px' }}>
+            {/* Draft Order */}
+            <div>
+              <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
+                <h3 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: 'bold', color: '#ffffff' }}>Draft Order</h3>
+                {draftOrder.map((drafter, idx) => {
+                  const picks = draftPicks.filter(p => p.user_id === drafter.user_id);
+                  const isCurrent = idx === pickIndex && !isDraftComplete;
+                  return (
+                    <div
+                      key={drafter.user_id}
+                      style={{
+                        padding: '12px',
+                        background: isCurrent ? '#065f46' : '#1e293b',
+                        border: `1px solid ${isCurrent ? '#10b981' : '#334155'}`,
+                        borderRadius: '8px',
+                        marginBottom: '8px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontWeight: 500, color: '#ffffff' }}>{drafter.username}</span>
+                        <span style={{ fontSize: '14px', color: '#ffffff' }}>{picks.length}/4</span>
                       </div>
-                    );
-                  })}
-                </div>
-                {isDraftComplete && (
-                  <div className="mt-3 p-3 bg-emerald-900/20 border border-emerald-500 rounded-lg text-center">
-                    <p className="text-emerald-400 font-medium text-sm">Draft Complete! 🎉</p>
-                  </div>
-                )}
+                      {isCurrent && (
+                        <div style={{ marginTop: '4px', fontSize: '12px', color: '#10b981', fontWeight: 500 }}>
+                          ON THE CLOCK
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
               {/* My Picks */}
-              <div className="bg-slate-900 border border-slate-700 rounded-lg p-4">
-                <h3 className="text-lg font-bold text-white mb-3">
+              <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px' }}>
+                <h3 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: 'bold', color: '#ffffff' }}>
                   My Picks ({myPicks.length}/4)
                 </h3>
-                <div className="space-y-2">
-                  {myPicks.map((pick, idx) => (
-                    <div
-                      key={idx}
-                      className="p-3 bg-slate-800 border border-slate-700 rounded-lg"
-                    >
-                      <div className="font-medium text-white">{pick.player_name}</div>
-                      <div className="text-sm text-slate-300">Pick #{pick.pick_number}</div>
-                    </div>
-                  ))}
-                  {[...Array(4 - myPicks.length)].map((_, idx) => (
-                    <div
-                      key={`empty-${idx}`}
-                      className="p-3 border-2 border-dashed border-slate-700 rounded-lg"
-                    >
-                      <div className="text-slate-600 text-sm">Empty slot</div>
-                    </div>
-                  ))}
-                </div>
+                {myPicks.map((pick, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      padding: '12px',
+                      background: '#1e293b',
+                      border: '1px solid #334155',
+                      borderRadius: '8px',
+                      marginBottom: '8px'
+                    }}
+                  >
+                    <div style={{ fontWeight: 500, color: '#ffffff' }}>{pick.player_name}</div>
+                    <div style={{ fontSize: '14px', color: '#94a3b8' }}>Pick #{pick.pick_number}</div>
+                  </div>
+                ))}
+                {[...Array(4 - myPicks.length)].map((_, idx) => (
+                  <div
+                    key={`empty-${idx}`}
+                    style={{
+                      padding: '12px',
+                      border: '2px dashed #334155',
+                      borderRadius: '8px',
+                      marginBottom: '8px'
+                    }}
+                  >
+                    <div style={{ color: '#64748b', fontSize: '14px' }}>Empty slot</div>
+                  </div>
+                ))}
               </div>
             </div>
 
             {/* Available Players */}
-            <div className="lg:col-span-2">
-              <div className="bg-slate-900 border border-slate-700 rounded-lg p-4">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
-                  <h3 className="text-lg font-bold text-white">Available Players</h3>
+            <div>
+              <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '12px' }}>
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#ffffff' }}>Available Players</h3>
                   {isMyTurn && !isDraftComplete && (
-                    <span className="px-3 py-1 bg-emerald-600 text-white text-sm font-medium rounded-full w-fit">
+                    <span style={{ padding: '4px 12px', background: '#10b981', color: '#ffffff', fontSize: '14px', fontWeight: 500, borderRadius: '20px' }}>
                       Your Turn!
                     </span>
                   )}
@@ -330,29 +332,38 @@ export default function Home() {
                   placeholder="Search players..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full px-4 py-2 mb-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+                  style={{
+                    width: '100%',
+                    padding: '10px 16px',
+                    marginBottom: '12px',
+                    background: '#1e293b',
+                    border: '1px solid #334155',
+                    borderRadius: '8px',
+                    color: '#ffffff',
+                    fontSize: '14px'
+                  }}
                 />
-                <div className="max-h-[500px] overflow-y-auto space-y-2">
+                <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
                   {filteredPlayers.map(player => (
                     <button
                       key={player.id}
                       onClick={() => draftPlayer(player)}
                       disabled={!isMyTurn || isDraftComplete}
-                      className={`w-full p-3 rounded-lg border transition-all text-left ${
-                        isMyTurn && !isDraftComplete
-                          ? 'bg-slate-800 border-slate-700 hover:bg-emerald-900/20 hover:border-emerald-500 cursor-pointer'
-                          : 'bg-slate-800/50 border-slate-700 cursor-not-allowed opacity-50'
-                      }`}
+                      style={{
+                        width: '100%',
+                        padding: '12px',
+                        marginBottom: '8px',
+                        background: isMyTurn && !isDraftComplete ? '#1e293b' : '#1e293b80',
+                        border: '1px solid #334155',
+                        borderRadius: '8px',
+                        color: '#ffffff',
+                        textAlign: 'left',
+                        cursor: isMyTurn && !isDraftComplete ? 'pointer' : 'not-allowed',
+                        opacity: isMyTurn && !isDraftComplete ? 1 : 0.5
+                      }}
                     >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="font-medium text-white">{player.name}</div>
-                          <div className="text-sm text-slate-300">{player.country}</div>
-                        </div>
-                        {isMyTurn && !isDraftComplete && (
-                          <span className="text-emerald-400 text-lg">+</span>
-                        )}
-                      </div>
+                      <div style={{ fontWeight: 500, color: '#ffffff' }}>{player.name}</div>
+                      <div style={{ fontSize: '14px', color: '#94a3b8', marginTop: '4px' }}>{player.country}</div>
                     </button>
                   ))}
                 </div>
@@ -362,63 +373,33 @@ export default function Home() {
         )}
 
         {activeTab === 'leaderboard' && (
-          <div className="bg-slate-900 border border-slate-700 rounded-lg overflow-hidden">
-            <div className="p-4 border-b border-slate-700">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <h3 className="text-xl font-bold text-white">Live Leaderboard</h3>
-                  <p className="text-slate-400 text-sm">
-                    Showing {filteredLeaderboard.length} drafted players
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-slate-400">
-                  <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                  Live
-                </div>
-              </div>
+          <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ padding: '16px', borderBottom: '1px solid #334155' }}>
+              <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#ffffff' }}>Live Leaderboard</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: '#94a3b8' }}>
+                Showing {filteredLeaderboard.length} drafted players
+              </p>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-800">
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead style={{ background: '#1e293b' }}>
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Pos</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">Player</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-white uppercase hidden sm:table-cell">Score</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-white uppercase hidden sm:table-cell">Today</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-white uppercase">Earnings</th>
+                    <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: '#ffffff', textTransform: 'uppercase' }}>Pos</th>
+                    <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: '#ffffff', textTransform: 'uppercase' }}>Player</th>
+                    <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: 500, color: '#ffffff', textTransform: 'uppercase' }}>Score</th>
+                    <th style={{ padding: '12px', textAlign: 'right', fontSize: '12px', fontWeight: 500, color: '#ffffff', textTransform: 'uppercase' }}>Earnings</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-700">
+                <tbody>
                   {filteredLeaderboard.map((entry, idx) => (
-                    <tr key={idx} className="hover:bg-slate-800/50">
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-white font-medium">{entry.position}</span>
+                    <tr key={idx} style={{ borderTop: '1px solid #334155' }}>
+                      <td style={{ padding: '12px', color: '#ffffff', fontWeight: 500 }}>{entry.position}</td>
+                      <td style={{ padding: '12px', color: '#ffffff', fontWeight: 500 }}>{entry.player?.name}</td>
+                      <td style={{ padding: '12px', textAlign: 'center', fontWeight: 'bold', color: entry.score?.total < 0 ? '#f87171' : '#ffffff' }}>
+                        {entry.score?.total > 0 ? '+' : ''}{entry.score?.total || 'E'}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="text-white font-medium">{entry.player?.name}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-center hidden sm:table-cell">
-                        <span className={`font-bold ${
-                          entry.score?.total < 0 ? 'text-red-400' :
-                          entry.score?.total > 0 ? 'text-white' :
-                          'text-white'
-                        }`}>
-                          {entry.score?.total > 0 ? '+' : ''}{entry.score?.total || 'E'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-center hidden sm:table-cell">
-                        <span className={` ${
-                          entry.score?.today < 0 ? 'text-red-400' :
-                          entry.score?.today > 0 ? 'text-white' :
-                          'text-white'
-                        }`}>
-                          {entry.score?.today > 0 ? '+' : ''}{entry.score?.today || 'E'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <span className="text-emerald-400 font-medium">
-                          ${entry.earnings?.toLocaleString() || '0'}
-                        </span>
+                      <td style={{ padding: '12px', textAlign: 'right', color: '#10b981', fontWeight: 500 }}>
+                        ${entry.earnings?.toLocaleString() || '0'}
                       </td>
                     </tr>
                   ))}
@@ -426,60 +407,56 @@ export default function Home() {
               </table>
             </div>
             {filteredLeaderboard.length === 0 && (
-              <div className="p-8 text-center text-slate-400">
-                No leaderboard data available yet. Check back during the tournament!
+              <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8' }}>
+                No leaderboard data available yet
               </div>
             )}
           </div>
         )}
 
         {activeTab === 'standings' && (
-          <div className="bg-slate-900 border border-slate-700 rounded-lg p-4">
-            <div className="mb-4">
-              <h3 className="text-xl font-bold text-white mb-1">Season Standings</h3>
-              <p className="text-slate-400 text-sm">Total Prize Money - 2026 Season</p>
-            </div>
-            <div className="space-y-3">
-              {seasonStandings.map((standing, idx) => (
-                <div
-                  key={standing.user_id}
-                  className={`p-4 rounded-lg border ${
-                    idx === 0
-                      ? 'bg-yellow-900/20 border-yellow-600'
-                      : idx === 1
-                      ? 'bg-slate-700/30 border-slate-500'
-                      : idx === 2
-                      ? 'bg-orange-900/20 border-orange-600'
-                      : 'bg-slate-800 border-slate-700'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
-                          idx === 0
-                            ? 'bg-yellow-600 text-white'
-                            : idx === 1
-                            ? 'bg-slate-500 text-white'
-                            : idx === 2
-                            ? 'bg-orange-600 text-white'
-                            : 'bg-slate-700 text-slate-300'
-                        }`}
-                      >
-                        {idx + 1}
-                      </div>
-                      <div>
-                        <div className="font-bold text-white">{standing.username}</div>
-                        <div className="text-emerald-400 font-medium text-sm">
-                          ${standing.total_winnings?.toLocaleString() || '0'}
-                        </div>
-                      </div>
+          <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px' }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '20px', fontWeight: 'bold', color: '#ffffff' }}>Season Standings</h3>
+            {seasonStandings.map((standing, idx) => (
+              <div
+                key={standing.user_id}
+                style={{
+                  padding: '16px',
+                  marginBottom: '12px',
+                  background: idx === 0 ? '#78350f40' : '#1e293b',
+                  border: `1px solid ${idx === 0 ? '#f59e0b' : '#334155'}`,
+                  borderRadius: '8px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '50%',
+                      background: idx === 0 ? '#f59e0b' : '#334155',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 'bold',
+                      color: '#ffffff'
+                    }}
+                  >
+                    {idx + 1}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 'bold', color: '#ffffff', fontSize: '16px' }}>{standing.username}</div>
+                    <div style={{ color: '#10b981', fontWeight: 500, fontSize: '14px' }}>
+                      ${standing.total_winnings?.toLocaleString() || '0'}
                     </div>
-                    {idx === 0 && <span className="text-2xl">🏆</span>}
                   </div>
                 </div>
-              ))}
-            </div>
+                {idx === 0 && <span style={{ fontSize: '24px' }}>🏆</span>}
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -516,22 +493,31 @@ function AuthForm({ supabase }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-800 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl p-8 max-w-md w-full">
-        <div className="text-center mb-6">
-          <h1 className="text-3xl font-bold text-emerald-400 mb-2">
+    <div style={{ minHeight: '100vh', background: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+      <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '16px', padding: '32px', maxWidth: '400px', width: '100%' }}>
+        <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+          <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: 'bold', color: '#10b981' }}>
             Golf Pick&apos;em League
           </h1>
-          <p className="text-slate-400 text-sm">2026 PGA Tour Season</p>
+          <p style={{ margin: 0, fontSize: '14px', color: '#94a3b8' }}>2026 PGA Tour Season</p>
         </div>
 
-        <form onSubmit={handleAuth} className="space-y-4">
+        <form onSubmit={handleAuth}>
           <input
             type="email"
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+            style={{
+              width: '100%',
+              padding: '12px 16px',
+              marginBottom: '12px',
+              background: '#1e293b',
+              border: '1px solid #334155',
+              borderRadius: '8px',
+              color: '#ffffff',
+              fontSize: '14px'
+            }}
             required
           />
           <input
@@ -539,27 +525,54 @@ function AuthForm({ supabase }) {
             placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+            style={{
+              width: '100%',
+              padding: '12px 16px',
+              marginBottom: '12px',
+              background: '#1e293b',
+              border: '1px solid #334155',
+              borderRadius: '8px',
+              color: '#ffffff',
+              fontSize: '14px'
+            }}
             required
           />
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+            style={{
+              width: '100%',
+              padding: '12px',
+              marginBottom: '12px',
+              background: '#10b981',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
           >
             {loading ? 'Loading...' : isSignUp ? 'Sign Up' : 'Sign In'}
           </button>
           <button
             type="button"
             onClick={() => setIsSignUp(!isSignUp)}
-            className="w-full text-sm text-emerald-400 hover:text-emerald-300 transition-colors"
+            style={{
+              width: '100%',
+              background: 'transparent',
+              color: '#10b981',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
           >
             {isSignUp ? 'Already have an account? Sign in' : 'Need an account? Sign up'}
           </button>
         </form>
 
         {message && (
-          <p className={`mt-4 text-sm text-center ${message.includes('created') ? 'text-emerald-400' : 'text-red-400'}`}>
+          <p style={{ marginTop: '16px', textAlign: 'center', fontSize: '14px', color: message.includes('created') ? '#10b981' : '#ef4444' }}>
             {message}
           </p>
         )}
@@ -567,4 +580,3 @@ function AuthForm({ supabase }) {
     </div>
   );
 }
-
