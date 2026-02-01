@@ -375,8 +375,56 @@ export default function Home() {
 
         {activeTab === 'draft' && (
           <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth >= 1024 ? '1fr 2fr' : '1fr', gap: '16px' }}>
-            {/* Draft Order */}
+            {/* Draft Order & My Picks Column */}
             <div>
+              {/* Draft History Feed */}
+              <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
+                <h3 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: 'bold', color: '#ffffff' }}>
+                  Draft Feed {draftPicks.length > 0 && `(${draftPicks.length}/${draftOrder.length * 4})`}
+                </h3>
+                <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                  {draftPicks.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '20px', color: '#64748b', fontSize: '14px' }}>
+                      Draft hasn&apos;t started yet
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column-reverse' }}>
+                      {draftPicks.slice().reverse().map((pick, idx) => (
+                        <div
+                          key={pick.id}
+                          style={{
+                            padding: '10px 12px',
+                            marginBottom: '8px',
+                            background: idx === 0 ? '#065f4615' : '#1e293b',
+                            border: `1px solid ${idx === 0 ? '#10b981' : '#334155'}`,
+                            borderRadius: '6px',
+                            borderLeft: idx === 0 ? '3px solid #10b981' : '1px solid #334155'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                            <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700, letterSpacing: '0.5px' }}>
+                              PICK #{pick.pick_number}
+                            </span>
+                            {idx === 0 && (
+                              <span style={{ fontSize: '10px', background: '#10b981', color: '#ffffff', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                LATEST
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '15px', color: '#ffffff', fontWeight: 600, marginBottom: '4px' }}>
+                            {pick.player_name}
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                            drafted by <span style={{ color: '#10b981', fontWeight: 500 }}>{pick.username}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Draft Order */}
               <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
                 <h3 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: 'bold', color: '#ffffff' }}>Draft Order</h3>
                 {draftOrder.map((drafter, idx) => {
