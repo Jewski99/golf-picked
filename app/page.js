@@ -15,6 +15,12 @@ export default function Home() {
   const [seasonStandings, setSeasonStandings] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
+  const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [playerStats, setPlayerStats] = useState(null);
+  const [loadingStats, setLoadingStats] = useState(false);
+  const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [playerStats, setPlayerStats] = useState(null);
+  const [loadingStats, setLoadingStats] = useState(false);
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL || '',
@@ -188,6 +194,113 @@ export default function Home() {
     setSeasonStandings(data || []);
   };
 
+  const fetchPlayerStats = async (player) => {
+    setSelectedPlayer(player);
+    setLoadingStats(true);
+    
+    try {
+      // Fetch player's tournament results from LiveGolf API
+      const response = await fetch(
+        `https://use.livegolfapi.com/v1/players/${player.id}/results?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch player stats');
+      }
+      
+      const results = await response.json();
+      
+      // Get last 5 tournaments
+      const recentResults = results.slice(0, 5);
+      
+      // Calculate season earnings (all results)
+      const seasonEarnings = results.reduce((sum, r) => sum + (r.earnings || 0), 0);
+      
+      // Find best finish
+      let bestFinish = null;
+      results.forEach(r => {
+        if (r.position && r.position !== 'CUT') {
+          const pos = parseInt(r.position.replace(/\D/g, ''));
+          if (!bestFinish || pos < bestFinish) {
+            bestFinish = pos;
+          }
+        }
+      });
+      
+      // Get times drafted in this league
+      const { data: draftData } = await supabase
+        .from('draft_picks')
+        .select('*')
+        .eq('player_id', player.id);
+      
+      setPlayerStats({
+        recentResults,
+        seasonEarnings,
+        bestFinish: bestFinish || 'N/A',
+        timesDrafted: draftData?.length || 0
+      });
+      
+    } catch (error) {
+      console.error('Error fetching player stats:', error);
+      setPlayerStats({ error: true });
+    } finally {
+      setLoadingStats(false);
+    }
+  };
+
+  const closePlayerModal = () => {
+    setSelectedPlayer(null);
+    setPlayerStats(null);
+  };
+
+  const fetchPlayerStats = async (player) => {
+    setSelectedPlayer(player);
+    setLoadingStats(true);
+    
+    try {
+      // Fetch player's recent tournament history
+      const response = await fetch(
+        `https://use.livegolfapi.com/v1/players/${player.id}/results?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
+      );
+      const data = await response.json();
+      
+      // Calculate stats
+      const recentResults = data.slice(0, 5); // Last 5 tournaments
+      const seasonEarnings = data.reduce((sum, result) => sum + (result.earnings || 0), 0);
+      const bestFinish = data.reduce((best, result) => {
+        const pos = parseInt(result.position);
+        return pos < best ? pos : best;
+      }, 999);
+      
+      // Get how many times drafted in league
+      const { data: draftData } = await supabase
+        .from('draft_picks')
+        .select('*')
+        .eq('player_id', player.id);
+      
+      setPlayerStats({
+        recentResults,
+        seasonEarnings,
+        bestFinish: bestFinish === 999 ? 'N/A' : bestFinish,
+        timesDrafted: draftData?.length || 0,
+        leagueEarnings: draftData?.reduce((sum, pick) => {
+          // Calculate earnings from this league
+          return sum;
+        }, 0) || 0
+      });
+    } catch (error) {
+      console.error('Error fetching player stats:', error);
+      setPlayerStats(null);
+    } finally {
+      setLoadingStats(false);
+    }
+  };
+
+  const closePlayerModal = () => {
+    setSelectedPlayer(null);
+    setPlayerStats(null);
+  };
+
   const draftPlayer = async (player) => {
     const myPicks = draftPicks.filter(p => p.user_id === user.id);
     if (myPicks.length >= 4) return;
@@ -345,27 +458,41 @@ export default function Home() {
                   .map((player, idx) => {
                     const isDrafted = draftPicks.some(pick => pick.player_id === player.id);
                     return (
-                      <div
+                      <button
                         key={player.id}
+                        onClick={() => fetchPlayerStats(player)}
                         style={{
                           padding: '12px',
                           background: isDrafted ? '#1e293b50' : '#1e293b',
                           border: `1px solid ${isDrafted ? '#64748b' : '#334155'}`,
                           borderRadius: '8px',
-                          opacity: isDrafted ? 0.6 : 1
+                          opacity: isDrafted ? 0.6 : 1,
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#065f4620';
+                          e.currentTarget.style.borderColor = '#10b981';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = isDrafted ? '#1e293b50' : '#1e293b';
+                          e.currentTarget.style.borderColor = isDrafted ? '#64748b' : '#334155';
                         }}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '4px' }}>
                           <div style={{ fontWeight: 600, color: '#ffffff', fontSize: '15px' }}>{player.name}</div>
-                          {isDrafted && (
+                          {isDrafted ? (
                             <span style={{ fontSize: '16px' }}>✓</span>
+                          ) : (
+                            <span style={{ fontSize: '14px', color: '#10b981' }}>→</span>
                           )}
                         </div>
                         <div style={{ fontSize: '13px', color: '#94a3b8' }}>{player.country}</div>
                         {isDrafted && (
                           <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Drafted</div>
                         )}
-                      </div>
+                      </button>
                     );
                   })}
               </div>
@@ -683,6 +810,156 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Player Stats Modal */}
+      {selectedPlayer && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+          }}
+          onClick={closePlayerModal}
+        >
+          <div
+            style={{
+              background: '#0f172a',
+              border: '2px solid #10b981',
+              borderRadius: '16px',
+              maxWidth: '500px',
+              width: '100%',
+              maxHeight: '90vh',
+              overflowY: 'auto'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div style={{ padding: '24px', borderBottom: '1px solid #334155' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#ffffff' }}>
+                    {selectedPlayer.name}
+                  </h2>
+                  <p style={{ margin: '6px 0 0 0', fontSize: '16px', color: '#94a3b8' }}>
+                    {selectedPlayer.country}
+                  </p>
+                </div>
+                <button
+                  onClick={closePlayerModal}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#94a3b8',
+                    fontSize: '32px',
+                    cursor: 'pointer',
+                    padding: 0,
+                    lineHeight: '1'
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div style={{ padding: '24px' }}>
+              {loadingStats ? (
+                <div style={{ textAlign: 'center', padding: '60px 20px', color: '#10b981', fontSize: '16px' }}>
+                  Loading stats...
+                </div>
+              ) : playerStats?.error ? (
+                <div style={{ textAlign: 'center', padding: '60px 20px', color: '#ef4444', fontSize: '16px' }}>
+                  Unable to load player stats
+                </div>
+              ) : playerStats ? (
+                <>
+                  {/* Season Summary Cards */}
+                  <div style={{ marginBottom: '28px' }}>
+                    <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 'bold', color: '#10b981' }}>
+                      📊 2026 Season
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div style={{ padding: '16px', background: '#1e293b', border: '1px solid #334155', borderRadius: '10px' }}>
+                        <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          Season Earnings
+                        </div>
+                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#10b981' }}>
+                          ${playerStats.seasonEarnings.toLocaleString()}
+                        </div>
+                      </div>
+                      <div style={{ padding: '16px', background: '#1e293b', border: '1px solid #334155', borderRadius: '10px' }}>
+                        <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          Best Finish
+                        </div>
+                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ffffff' }}>
+                          {playerStats.bestFinish === 'N/A' ? 'N/A' : `T${playerStats.bestFinish}`}
+                        </div>
+                      </div>
+                      <div style={{ padding: '16px', background: '#1e293b', border: '1px solid #334155', borderRadius: '10px' }}>
+                        <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          Times Drafted
+                        </div>
+                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ffffff' }}>
+                          {playerStats.timesDrafted}x
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Recent Form */}
+                  <div>
+                    <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 'bold', color: '#10b981' }}>
+                      🔥 Recent Form (Last 5 Events)
+                    </h3>
+                    {playerStats.recentResults.length > 0 ? (
+                      <div>
+                        {playerStats.recentResults.map((result, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              padding: '14px',
+                              background: '#1e293b',
+                              border: '1px solid #334155',
+                              borderRadius: '10px',
+                              marginBottom: '10px'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '6px' }}>
+                              <div style={{ fontSize: '15px', fontWeight: 600, color: '#ffffff', flex: 1, paddingRight: '12px' }}>
+                                {result.eventName || 'Tournament'}
+                              </div>
+                              <div style={{ fontSize: '20px', fontWeight: 'bold', color: result.position ? '#10b981' : '#ef4444', flexShrink: 0 }}>
+                                {result.position ? `T${result.position}` : 'CUT'}
+                              </div>
+                            </div>
+                            <div style={{ fontSize: '14px', color: '#10b981', fontWeight: 500 }}>
+                              ${(result.earnings || 0).toLocaleString()}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: 'center', padding: '40px 20px', background: '#1e293b', border: '1px solid #334155', borderRadius: '10px' }}>
+                        <div style={{ color: '#64748b', fontSize: '16px' }}>
+                          No recent results available
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
