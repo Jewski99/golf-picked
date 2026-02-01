@@ -62,10 +62,37 @@ export default function Home() {
         `https://use.livegolfapi.com/v1/events?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}&tour=pga-tour`
       );
       const data = await response.json();
-      const upcoming = data.filter(e => new Date(e.endDatetime) >= new Date());
-      setEvents(upcoming);
-      if (upcoming.length > 0) {
-        setCurrentEvent(upcoming[0]);
+      const now = new Date();
+      
+      // Filter events - include current and upcoming
+      const relevantEvents = data.filter(e => {
+        const endDate = new Date(e.endDatetime);
+        return endDate >= now;
+      });
+      
+      setEvents(relevantEvents);
+      
+      if (relevantEvents.length > 0) {
+        let selectedEvent = relevantEvents[0];
+        
+        for (const event of relevantEvents) {
+          const startDate = new Date(event.startDatetime);
+          const endDate = new Date(event.endDatetime);
+          
+          // If tournament is currently happening (between start and end), show it
+          if (now >= startDate && now <= endDate) {
+            selectedEvent = event;
+            break;
+          }
+          
+          // If tournament hasn't started yet, this is the next one
+          if (now < startDate) {
+            selectedEvent = event;
+            break;
+          }
+        }
+        
+        setCurrentEvent(selectedEvent);
       }
     } catch (error) {
       console.error('Error fetching events:', error);
