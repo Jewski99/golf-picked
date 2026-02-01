@@ -249,7 +249,7 @@ export default function Home() {
       {/* Tabs */}
       <div style={{ maxWidth: '1200px', margin: '16px auto', padding: '0 16px' }}>
         <div style={{ display: 'flex', gap: '8px', background: '#0f172a', padding: '4px', borderRadius: '8px', border: '1px solid #334155' }}>
-          {['draft', 'leaderboard', 'standings'].map(tab => (
+          {['draft', 'field', 'leaderboard', 'standings'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -273,6 +273,66 @@ export default function Home() {
 
       {/* Content */}
       <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 16px 32px' }}>
+        {activeTab === 'field' && (
+          <div className="bg-slate-900 border border-slate-700 rounded-lg overflow-hidden">
+            <div className="p-4 border-b border-slate-700">
+              <h3 className="text-xl font-bold text-white">{currentEvent?.name} Field</h3>
+              <p className="text-slate-400 text-sm mt-1">
+                {players.length} players in the field
+              </p>
+            </div>
+            <div style={{ padding: '16px' }}>
+              <input
+                type="text"
+                placeholder="Search field..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  marginBottom: '16px',
+                  background: '#1e293b',
+                  border: '1px solid #334155',
+                  borderRadius: '8px',
+                  color: '#ffffff',
+                  fontSize: '14px'
+                }}
+              />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '12px', maxHeight: '700px', overflowY: 'auto' }}>
+                {players
+                  .filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((player, idx) => {
+                    const isDrafted = draftPicks.some(pick => pick.player_id === player.id);
+                    return (
+                      <div
+                        key={player.id}
+                        style={{
+                          padding: '12px',
+                          background: isDrafted ? '#1e293b50' : '#1e293b',
+                          border: `1px solid ${isDrafted ? '#64748b' : '#334155'}`,
+                          borderRadius: '8px',
+                          opacity: isDrafted ? 0.6 : 1
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '4px' }}>
+                          <div style={{ fontWeight: 600, color: '#ffffff', fontSize: '15px' }}>{player.name}</div>
+                          {isDrafted && (
+                            <span style={{ fontSize: '16px' }}>✓</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#94a3b8' }}>{player.country}</div>
+                        {isDrafted && (
+                          <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Drafted</div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'draft' && (
           <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth >= 1024 ? '1fr 2fr' : '1fr', gap: '16px' }}>
             {/* Draft Order */}
