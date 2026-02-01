@@ -327,43 +327,91 @@ export default function Home() {
                     </span>
                   )}
                 </div>
-                <input
-                  type="text"
-                  placeholder="Search players..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 16px',
-                    marginBottom: '12px',
-                    background: '#1e293b',
-                    border: '1px solid #334155',
-                    borderRadius: '8px',
-                    color: '#ffffff',
-                    fontSize: '14px'
-                  }}
-                />
-                <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
-                  {filteredPlayers.map(player => (
+                <div style={{ position: 'relative', marginBottom: '12px' }}>
+                  <input
+                    type="text"
+                    placeholder="Type player name to search..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      background: '#1e293b',
+                      border: searchTerm ? '2px solid #10b981' : '1px solid #334155',
+                      borderRadius: '8px',
+                      color: '#ffffff',
+                      fontSize: '16px',
+                      outline: 'none'
+                    }}
+                  />
+                  {searchTerm && (
+                    <button
+                      onClick={() => setSearchTerm('')}
+                      style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#94a3b8',
+                        cursor: 'pointer',
+                        fontSize: '18px',
+                        padding: '4px'
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize: '14px', color: '#94a3b8', marginBottom: '8px' }}>
+                  {searchTerm 
+                    ? `${filteredPlayers.length} player${filteredPlayers.length !== 1 ? 's' : ''} found`
+                    : `${filteredPlayers.length} players available - start typing to search`
+                  }
+                </div>
+                <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
+                  {searchTerm && filteredPlayers.length === 0 && (
+                    <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8' }}>
+                      No players found matching "{searchTerm}"
+                    </div>
+                  )}
+                  {filteredPlayers.slice(0, searchTerm ? filteredPlayers.length : 20).map(player => (
                     <button
                       key={player.id}
-                      onClick={() => draftPlayer(player)}
+                      onClick={() => {
+                        draftPlayer(player);
+                        setSearchTerm('');
+                      }}
                       disabled={!isMyTurn || isDraftComplete}
                       style={{
                         width: '100%',
-                        padding: '12px',
+                        padding: '14px 16px',
                         marginBottom: '8px',
-                        background: isMyTurn && !isDraftComplete ? '#1e293b' : '#1e293b80',
-                        border: '1px solid #334155',
+                        background: isMyTurn && !isDraftComplete ? (searchTerm ? '#065f4620' : '#1e293b') : '#1e293b80',
+                        border: `2px solid ${isMyTurn && !isDraftComplete && searchTerm ? '#10b981' : '#334155'}`,
                         borderRadius: '8px',
                         color: '#ffffff',
                         textAlign: 'left',
                         cursor: isMyTurn && !isDraftComplete ? 'pointer' : 'not-allowed',
-                        opacity: isMyTurn && !isDraftComplete ? 1 : 0.5
+                        opacity: isMyTurn && !isDraftComplete ? 1 : 0.5,
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (isMyTurn && !isDraftComplete) {
+                          e.currentTarget.style.background = '#065f4640';
+                          e.currentTarget.style.transform = 'translateX(4px)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (isMyTurn && !isDraftComplete) {
+                          e.currentTarget.style.background = searchTerm ? '#065f4620' : '#1e293b';
+                          e.currentTarget.style.transform = 'translateX(0)';
+                        }
                       }}
                     >
-                      <div style={{ fontWeight: 500, color: '#ffffff' }}>{player.name}</div>
-                      <div style={{ fontSize: '14px', color: '#94a3b8', marginTop: '4px' }}>{player.country}</div>
+                      <div style={{ fontWeight: 600, color: '#ffffff', fontSize: '16px', marginBottom: '4px' }}>{player.name}</div>
+                      <div style={{ fontSize: '14px', color: '#94a3b8' }}>{player.country}</div>
                     </button>
                   ))}
                 </div>
