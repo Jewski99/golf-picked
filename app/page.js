@@ -129,7 +129,47 @@ export default function Home() {
       .select('*')
       .eq('event_id', currentEvent.id)
       .order('pick_number');
+    
+    const previousPickCount = draftPicks.length;
     setDraftPicks(data || []);
+    
+    // If picks increased, check if we need to notify next person
+    if (data && data.length > previousPickCount && data.length < draftOrder.length * 4) {
+      const nextPickIndex = data.length % draftOrder.length;
+      const nextDrafter = draftOrder[nextPickIndex];
+      
+      if (nextDrafter && nextDrafter.user_id !== user.id) {
+        // Send notification to next person
+        sendNotification(nextDrafter, data.length + 1);
+      }
+    }
+  };
+
+  const sendNotification = async (drafter, pickNumber) => {
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('phone_number')
+        .eq('id', drafter.user_id)
+        .single();
+
+      if (profile?.phone_number) {
+        const myPicksCount = draftPicks.filter(p => p.user_id === drafter.user_id).length;
+        
+        await fetch('/api/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phoneNumber: profile.phone_number,
+            username: drafter.username,
+            pickNumber: myPicksCount + 1,
+            eventName: currentEvent.name,
+          }),
+        });
+      }
+    } catch (error) {
+      console.error('Error sending notification:', error);
+    }
   };
 
   const fetchDraftOrder = async () => {
