@@ -18,9 +18,6 @@ export default function Home() {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [playerStats, setPlayerStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(false);
-  const [selectedPlayer, setSelectedPlayer] = useState(null);
-  const [playerStats, setPlayerStats] = useState(null);
-  const [loadingStats, setLoadingStats] = useState(false);
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL || '',
@@ -247,54 +244,6 @@ export default function Home() {
     } catch (error) {
       console.error('Error fetching player stats:', error);
       setPlayerStats({ error: true });
-    } finally {
-      setLoadingStats(false);
-    }
-  };
-
-  const closePlayerModal = () => {
-    setSelectedPlayer(null);
-    setPlayerStats(null);
-  };
-
-  const fetchPlayerStats = async (player) => {
-    setSelectedPlayer(player);
-    setLoadingStats(true);
-    
-    try {
-      // Fetch player's recent tournament history
-      const response = await fetch(
-        `https://use.livegolfapi.com/v1/players/${player.id}/results?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
-      );
-      const data = await response.json();
-      
-      // Calculate stats
-      const recentResults = data.slice(0, 5); // Last 5 tournaments
-      const seasonEarnings = data.reduce((sum, result) => sum + (result.earnings || 0), 0);
-      const bestFinish = data.reduce((best, result) => {
-        const pos = parseInt(result.position);
-        return pos < best ? pos : best;
-      }, 999);
-      
-      // Get how many times drafted in league
-      const { data: draftData } = await supabase
-        .from('draft_picks')
-        .select('*')
-        .eq('player_id', player.id);
-      
-      setPlayerStats({
-        recentResults,
-        seasonEarnings,
-        bestFinish: bestFinish === 999 ? 'N/A' : bestFinish,
-        timesDrafted: draftData?.length || 0,
-        leagueEarnings: draftData?.reduce((sum, pick) => {
-          // Calculate earnings from this league
-          return sum;
-        }, 0) || 0
-      });
-    } catch (error) {
-      console.error('Error fetching player stats:', error);
-      setPlayerStats(null);
     } finally {
       setLoadingStats(false);
     }
