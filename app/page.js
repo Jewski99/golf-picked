@@ -111,7 +111,9 @@ export default function Home() {
         `https://use.livegolfapi.com/v1/events/${currentEvent.id}/players?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
       );
       const data = await response.json();
-      setPlayers(data);
+      // Handle nested API response - extract players array from common response formats
+      const playersArray = Array.isArray(data) ? data : (data.players || data.data || []);
+      setPlayers(playersArray);
     } catch (error) {
       console.error('Error fetching players:', error);
     }
@@ -123,7 +125,9 @@ export default function Home() {
         `https://use.livegolfapi.com/v1/events/${currentEvent.id}/leaderboard?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
       );
       const data = await response.json();
-      setLeaderboard(data);
+      // Handle nested API response - extract leaderboard array from common response formats
+      const leaderboardArray = Array.isArray(data) ? data : (data.leaderboard || data.data || []);
+      setLeaderboard(leaderboardArray);
     } catch (error) {
       console.error('Error fetching leaderboard:', error);
     }
