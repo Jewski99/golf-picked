@@ -1,6 +1,9 @@
 // File: app/api/notify/route.js
 // This API route sends SMS notifications via Twilio
 
+// Keep in sync with LEAGUE_CONFIG in page.js
+const PICKS_PER_PLAYER = 4;
+
 export async function POST(request) {
   try {
     const { phoneNumber, username, pickNumber, eventName } = await request.json();
@@ -13,7 +16,7 @@ export async function POST(request) {
       return Response.json({ error: 'Twilio credentials not configured' }, { status: 500 });
     }
 
-    const message = `🏌️ Golf Pick'em: ${username}, it's your turn to draft!\n\nEvent: ${eventName}\nPick: ${pickNumber}/4\n\nDraft now at: ${process.env.NEXT_PUBLIC_SITE_URL || 'your-app.vercel.app'}`;
+    const message = `🏌️ Golf Pick'em: ${username}, it's your turn to draft!\n\nEvent: ${eventName}\nPick: ${pickNumber}/${PICKS_PER_PLAYER}\n\nDraft now at: ${process.env.NEXT_PUBLIC_SITE_URL || 'your-app.vercel.app'}`;
 
     const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
     

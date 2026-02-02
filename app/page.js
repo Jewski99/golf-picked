@@ -1,7 +1,39 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
+
+// ============================================
+// LEAGUE CONFIGURATION - Easy to modify
+// ============================================
+const LEAGUE_CONFIG = {
+  PICKS_PER_PLAYER: 4,           // Number of picks each player gets per event
+  LEADERBOARD_REFRESH_MS: 120000, // How often to refresh leaderboard (2 minutes)
+  API_BASE_URL: 'https://use.livegolfapi.com/v1',
+};
+
+// Helper to get current season year (PGA season runs Oct-Aug, so Jan-Aug = current year, Sep-Dec = next year)
+const getCurrentSeasonYear = () => {
+  const now = new Date();
+  const month = now.getMonth(); // 0-indexed
+  const year = now.getFullYear();
+  // If September or later, it's the next year's season
+  return month >= 8 ? year + 1 : year;
+};
+
+const CURRENT_SEASON = getCurrentSeasonYear();
+
+// Singleton Supabase client - created lazily to avoid SSG issues
+let supabaseInstance = null;
+const getSupabaseClient = () => {
+  if (!supabaseInstance && typeof window !== 'undefined') {
+    supabaseInstance = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+    );
+  }
+  return supabaseInstance;
+};
 
 export default function Home() {
   const [user, setUser] = useState(null);
@@ -18,16 +50,13 @@ export default function Home() {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [playerStats, setPlayerStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(false);
-  const [selectedPlayer, setSelectedPlayer] = useState(null);
-  const [playerStats, setPlayerStats] = useState(null);
-  const [loadingStats, setLoadingStats] = useState(false);
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-  );
+  // Get Supabase client (memoized to ensure stable reference)
+  const supabase = useMemo(() => getSupabaseClient(), []);
 
   useEffect(() => {
+    if (!supabase) return;
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user || null);
       setLoading(false);
@@ -38,12 +67,32 @@ export default function Home() {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [supabase]);
 
   useEffect(() => {
     if (user) {
       fetchEvents();
       fetchStandings();
+
+      // Real-time subscription for standings updates
+      const standingsChannel = supabase
+        .channel('season_standings_changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*', // Listen for INSERT, UPDATE, DELETE
+            schema: 'public',
+            table: 'season_standings',
+          },
+          () => {
+            fetchStandings();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(standingsChannel);
+      };
     }
   }, [user]);
 
@@ -53,19 +102,41 @@ export default function Home() {
       fetchDraftPicks();
       fetchDraftOrder();
       fetchLeaderboard();
-      
+
+      // Real-time subscription for draft picks - instant updates when anyone drafts
+      const draftChannel = supabase
+        .channel(`draft_picks_${currentEvent.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'draft_picks',
+            filter: `event_id=eq.${currentEvent.id}`,
+          },
+          () => {
+            // Refresh draft picks when a new pick is inserted by anyone
+            fetchDraftPicks();
+          }
+        )
+        .subscribe();
+
+      // Polling for leaderboard (external API, can't use real-time)
       const interval = setInterval(() => {
         fetchLeaderboard();
-      }, 120000);
-      
-      return () => clearInterval(interval);
+      }, LEAGUE_CONFIG.LEADERBOARD_REFRESH_MS);
+
+      return () => {
+        clearInterval(interval);
+        supabase.removeChannel(draftChannel);
+      };
     }
-  }, [currentEvent]);
+  }, [currentEvent, fetchDraftPicks]);
 
   const fetchEvents = async () => {
     try {
       const response = await fetch(
-        `https://use.livegolfapi.com/v1/events?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}&tour=pga-tour`
+        `${LEAGUE_CONFIG.API_BASE_URL}/events?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}&tour=pga-tour`
       );
       const data = await response.json();
       const now = new Date();
@@ -108,7 +179,7 @@ export default function Home() {
   const fetchPlayers = async () => {
     try {
       const response = await fetch(
-        `https://use.livegolfapi.com/v1/events/${currentEvent.id}/players?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
+        `${LEAGUE_CONFIG.API_BASE_URL}/events/${currentEvent.id}/players?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
       );
       const data = await response.json();
       setPlayers(data);
@@ -120,7 +191,7 @@ export default function Home() {
   const fetchLeaderboard = async () => {
     try {
       const response = await fetch(
-        `https://use.livegolfapi.com/v1/events/${currentEvent.id}/leaderboard?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
+        `${LEAGUE_CONFIG.API_BASE_URL}/events/${currentEvent.id}/leaderboard?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
       );
       const data = await response.json();
       setLeaderboard(data);
@@ -129,27 +200,26 @@ export default function Home() {
     }
   };
 
-  const fetchDraftPicks = async () => {
+  const fetchDraftPicks = useCallback(async (shouldNotify = false) => {
     const { data } = await supabase
       .from('draft_picks')
       .select('*')
       .eq('event_id', currentEvent.id)
       .order('pick_number');
-    
-    const previousPickCount = draftPicks.length;
+
     setDraftPicks(data || []);
-    
-    // If picks increased, check if we need to notify next person
-    if (data && data.length > previousPickCount && data.length < draftOrder.length * 4) {
+
+    // Only send notifications when explicitly requested (after a new pick is made)
+    const totalPicks = draftOrder.length * LEAGUE_CONFIG.PICKS_PER_PLAYER;
+    if (shouldNotify && data && data.length < totalPicks) {
       const nextPickIndex = data.length % draftOrder.length;
       const nextDrafter = draftOrder[nextPickIndex];
-      
-      if (nextDrafter && nextDrafter.user_id !== user.id) {
-        // Send notification to next person
+
+      if (nextDrafter && nextDrafter.user_id !== user?.id) {
         sendNotification(nextDrafter, data.length + 1);
       }
     }
-  };
+  }, [currentEvent?.id, draftOrder, user?.id]);
 
   const sendNotification = async (drafter, pickNumber) => {
     try {
@@ -197,11 +267,11 @@ export default function Home() {
   const fetchPlayerStats = async (player) => {
     setSelectedPlayer(player);
     setLoadingStats(true);
-    
+
     try {
       // Fetch player's tournament results from LiveGolf API
       const response = await fetch(
-        `https://use.livegolfapi.com/v1/players/${player.id}/results?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
+        `${LEAGUE_CONFIG.API_BASE_URL}/players/${player.id}/results?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
       );
       
       if (!response.ok) {
@@ -253,57 +323,9 @@ export default function Home() {
     setPlayerStats(null);
   };
 
-  const fetchPlayerStats = async (player) => {
-    setSelectedPlayer(player);
-    setLoadingStats(true);
-    
-    try {
-      // Fetch player's recent tournament history
-      const response = await fetch(
-        `https://use.livegolfapi.com/v1/players/${player.id}/results?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
-      );
-      const data = await response.json();
-      
-      // Calculate stats
-      const recentResults = data.slice(0, 5); // Last 5 tournaments
-      const seasonEarnings = data.reduce((sum, result) => sum + (result.earnings || 0), 0);
-      const bestFinish = data.reduce((best, result) => {
-        const pos = parseInt(result.position);
-        return pos < best ? pos : best;
-      }, 999);
-      
-      // Get how many times drafted in league
-      const { data: draftData } = await supabase
-        .from('draft_picks')
-        .select('*')
-        .eq('player_id', player.id);
-      
-      setPlayerStats({
-        recentResults,
-        seasonEarnings,
-        bestFinish: bestFinish === 999 ? 'N/A' : bestFinish,
-        timesDrafted: draftData?.length || 0,
-        leagueEarnings: draftData?.reduce((sum, pick) => {
-          // Calculate earnings from this league
-          return sum;
-        }, 0) || 0
-      });
-    } catch (error) {
-      console.error('Error fetching player stats:', error);
-      setPlayerStats(null);
-    } finally {
-      setLoadingStats(false);
-    }
-  };
-
-  const closePlayerModal = () => {
-    setSelectedPlayer(null);
-    setPlayerStats(null);
-  };
-
   const draftPlayer = async (player) => {
     const myPicks = draftPicks.filter(p => p.user_id === user.id);
-    if (myPicks.length >= 4) return;
+    if (myPicks.length >= LEAGUE_CONFIG.PICKS_PER_PLAYER) return;
 
     const currentPickNum = draftPicks.length + 1;
     const pickIndex = (currentPickNum - 1) % draftOrder.length;
@@ -321,7 +343,8 @@ export default function Home() {
       pick_number: currentPickNum,
     });
 
-    fetchDraftPicks();
+    // Fetch and trigger notification to next drafter
+    fetchDraftPicks(true);
   };
 
   if (loading) {
@@ -351,8 +374,8 @@ export default function Home() {
   const currentPickNum = draftPicks.length + 1;
   const pickIndex = (currentPickNum - 1) % draftOrder.length;
   const currentDrafter = draftOrder[pickIndex];
-  const isMyTurn = currentDrafter?.user_id === user.id && myPicks.length < 4;
-  const isDraftComplete = draftPicks.length >= draftOrder.length * 4;
+  const isMyTurn = currentDrafter?.user_id === user.id && myPicks.length < LEAGUE_CONFIG.PICKS_PER_PLAYER;
+  const isDraftComplete = draftPicks.length >= draftOrder.length * LEAGUE_CONFIG.PICKS_PER_PLAYER;
 
   return (
     <div style={{ minHeight: '100vh', background: '#1e293b', color: '#ffffff' }}>
@@ -364,7 +387,7 @@ export default function Home() {
               <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: '#10b981' }}>
                 Golf Pick&apos;em League
               </h1>
-              <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>2026 PGA Tour Season</p>
+              <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>{CURRENT_SEASON} PGA Tour Season</p>
             </div>
             <button
               onClick={() => supabase.auth.signOut()}
@@ -570,7 +593,7 @@ export default function Home() {
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ fontWeight: 500, color: '#ffffff' }}>{drafter.username}</span>
-                        <span style={{ fontSize: '14px', color: '#ffffff' }}>{picks.length}/4</span>
+                        <span style={{ fontSize: '14px', color: '#ffffff' }}>{picks.length}/{LEAGUE_CONFIG.PICKS_PER_PLAYER}</span>
                       </div>
                       {isCurrent && (
                         <div style={{ marginTop: '4px', fontSize: '12px', color: '#10b981', fontWeight: 500 }}>
@@ -585,7 +608,7 @@ export default function Home() {
               {/* My Picks */}
               <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px' }}>
                 <h3 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: 'bold', color: '#ffffff' }}>
-                  My Picks ({myPicks.length}/4)
+                  My Picks ({myPicks.length}/{LEAGUE_CONFIG.PICKS_PER_PLAYER})
                 </h3>
                 {myPicks.map((pick, idx) => (
                   <div
@@ -602,7 +625,7 @@ export default function Home() {
                     <div style={{ fontSize: '14px', color: '#94a3b8' }}>Pick #{pick.pick_number}</div>
                   </div>
                 ))}
-                {[...Array(4 - myPicks.length)].map((_, idx) => (
+                {[...Array(LEAGUE_CONFIG.PICKS_PER_PLAYER - myPicks.length)].map((_, idx) => (
                   <div
                     key={`empty-${idx}`}
                     style={{
@@ -884,7 +907,7 @@ export default function Home() {
                   {/* Season Summary Cards */}
                   <div style={{ marginBottom: '28px' }}>
                     <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 'bold', color: '#10b981' }}>
-                      📊 2026 Season
+                      📊 {CURRENT_SEASON} Season
                     </h3>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                       <div style={{ padding: '16px', background: '#1e293b', border: '1px solid #334155', borderRadius: '10px' }}>
@@ -999,7 +1022,7 @@ function AuthForm({ supabase }) {
           <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: 'bold', color: '#10b981' }}>
             Golf Pick&apos;em League
           </h1>
-          <p style={{ margin: 0, fontSize: '14px', color: '#94a3b8' }}>2026 PGA Tour Season</p>
+          <p style={{ margin: 0, fontSize: '14px', color: '#94a3b8' }}>{CURRENT_SEASON} PGA Tour Season</p>
         </div>
 
         <form onSubmit={handleAuth}>
