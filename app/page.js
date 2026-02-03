@@ -108,87 +108,98 @@ export default function Home() {
 
   /**
    * Fetch players with conditional logic:
-   * - Before tournament (Mon-Wed): Use scraped_fields from Supabase
-   * - During tournament (Thu-Sun): Use LiveGolf API
-   * - Fallback: If scraped data unavailable, use LiveGolf API
+   * - Before tournament (Mon-Wed): Try scraped_fields first, fallback to LiveGolf API
+   * - During tournament (Thu-Sun): Use LiveGolf API exclusively
    */
   const fetchPlayers = async () => {
+    // Determine if tournament has started
+    const now = new Date();
+    const tournamentStart = new Date(currentEvent.startDatetime);
+    const hasStarted = now >= tournamentStart;
+    setTournamentStarted(hasStarted);
+
+    // ALWAYS fetch from LiveGolf API first (this is the reliable source)
+    let liveGolfData = [];
     try {
-      const now = new Date();
-      const tournamentStart = new Date(currentEvent.startDatetime);
-      const hasStarted = now >= tournamentStart;
-      setTournamentStarted(hasStarted);
-
-      // If tournament hasn't started, try to get scraped field data first
-      if (!hasStarted) {
-        console.log('[Players] Tournament not started, checking scraped field data...');
-        const scrapedPlayers = await fetchScrapedPlayers();
-
-        if (scrapedPlayers && scrapedPlayers.length > 0) {
-          console.log(`[Players] Using ${scrapedPlayers.length} players from scraped data`);
-          setPlayers(scrapedPlayers);
-          return;
-        }
-        console.log('[Players] No scraped data, falling back to LiveGolf API');
-      }
-
-      // Tournament has started or no scraped data - use LiveGolf API
       const response = await fetch(
         `https://use.livegolfapi.com/v1/events/${currentEvent.id}/players?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
       );
       const data = await response.json();
-
-      // If we have both scraped data and LiveGolf data, merge player IDs
-      if (!hasStarted && data && data.length > 0) {
-        const mergedPlayers = await mergePlayerData(data);
-        setPlayers(mergedPlayers);
-      } else {
-        setPlayers(data);
+      // Ensure we have an array
+      if (Array.isArray(data)) {
+        liveGolfData = data;
       }
     } catch (error) {
-      console.error('Error fetching players:', error);
-      // Fallback: try LiveGolf API directly
-      try {
-        const response = await fetch(
-          `https://use.livegolfapi.com/v1/events/${currentEvent.id}/players?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
-        );
-        const data = await response.json();
-        setPlayers(data);
-      } catch (fallbackError) {
-        console.error('Fallback also failed:', fallbackError);
-      }
+      console.error('Error fetching from LiveGolf API:', error);
     }
+
+    // If tournament has started, just use LiveGolf data
+    if (hasStarted) {
+      setPlayers(liveGolfData);
+      return;
+    }
+
+    // Tournament hasn't started - try to get scraped data for early field visibility
+    try {
+      const scrapedPlayers = await fetchScrapedPlayers();
+
+      if (scrapedPlayers && scrapedPlayers.length > 0) {
+        console.log(`[Players] Using ${scrapedPlayers.length} players from scraped data`);
+
+        // Merge with LiveGolf IDs if available
+        if (liveGolfData.length > 0) {
+          const liveGolfMap = new Map();
+          liveGolfData.forEach(p => {
+            liveGolfMap.set(p.name.toLowerCase(), p);
+          });
+
+          const mergedPlayers = scrapedPlayers.map(scraped => {
+            const liveGolfPlayer = liveGolfMap.get(scraped.name.toLowerCase());
+            if (liveGolfPlayer) {
+              return { ...scraped, id: liveGolfPlayer.id };
+            }
+            return scraped;
+          });
+
+          setPlayers(mergedPlayers);
+        } else {
+          setPlayers(scrapedPlayers);
+        }
+        return;
+      }
+    } catch (error) {
+      console.error('Error fetching scraped players:', error);
+    }
+
+    // Fallback to LiveGolf data
+    console.log('[Players] Using LiveGolf API data');
+    setPlayers(liveGolfData);
   };
 
   /**
    * Fetch scraped player data from Supabase
+   * Returns null if table doesn't exist or no data found
    */
   const fetchScrapedPlayers = async () => {
     try {
+      // First try by event_id
       const { data, error } = await supabase
         .from('scraped_fields')
         .select('*')
         .eq('event_id', currentEvent.id)
         .order('player_name');
 
+      // If table doesn't exist or query failed, return null
       if (error) {
-        console.error('Error fetching scraped players:', error);
+        // Don't log error if table just doesn't exist yet
+        if (!error.message?.includes('does not exist')) {
+          console.log('[ScrapedPlayers] Query error:', error.message);
+        }
         return null;
       }
 
-      if (!data || data.length === 0) {
-        // Try matching by event name if ID doesn't match
-        const { data: nameMatch, error: nameError } = await supabase
-          .from('scraped_fields')
-          .select('*')
-          .ilike('event_name', `%${currentEvent.name}%`)
-          .order('player_name');
-
-        if (nameError || !nameMatch || nameMatch.length === 0) {
-          return null;
-        }
-
-        return nameMatch.map(p => ({
+      if (data && data.length > 0) {
+        return data.map(p => ({
           id: p.player_livegolf_id || p.player_pga_id || `scraped-${p.id}`,
           name: p.player_name,
           country: p.player_country,
@@ -196,68 +207,28 @@ export default function Home() {
         }));
       }
 
-      return data.map(p => ({
+      // Try matching by event name if ID doesn't match
+      const { data: nameMatch, error: nameError } = await supabase
+        .from('scraped_fields')
+        .select('*')
+        .ilike('event_name', `%${currentEvent.name}%`)
+        .order('player_name');
+
+      if (nameError || !nameMatch || nameMatch.length === 0) {
+        return null;
+      }
+
+      return nameMatch.map(p => ({
         id: p.player_livegolf_id || p.player_pga_id || `scraped-${p.id}`,
         name: p.player_name,
         country: p.player_country,
         _scraped: true
       }));
     } catch (error) {
-      console.error('Error in fetchScrapedPlayers:', error);
+      // Silently fail - we'll fall back to LiveGolf API
+      console.log('[ScrapedPlayers] Exception:', error.message);
       return null;
     }
-  };
-
-  /**
-   * Merge scraped player data with LiveGolf API data
-   * Uses LiveGolf player IDs when available for consistency
-   */
-  const mergePlayerData = async (liveGolfPlayers) => {
-    const scrapedPlayers = await fetchScrapedPlayers();
-    if (!scrapedPlayers || scrapedPlayers.length === 0) {
-      return liveGolfPlayers;
-    }
-
-    // Create a map of LiveGolf players by name for ID lookup
-    const liveGolfMap = new Map();
-    liveGolfPlayers.forEach(p => {
-      liveGolfMap.set(p.name.toLowerCase(), p);
-    });
-
-    // Update scraped players with LiveGolf IDs where available
-    const mergedPlayers = scrapedPlayers.map(scraped => {
-      const liveGolfPlayer = liveGolfMap.get(scraped.name.toLowerCase());
-      if (liveGolfPlayer) {
-        return {
-          ...scraped,
-          id: liveGolfPlayer.id, // Use LiveGolf ID for consistency
-          country: liveGolfPlayer.country || scraped.country
-        };
-      }
-      return scraped;
-    });
-
-    // Optionally update Supabase with LiveGolf IDs for future use
-    const updates = mergedPlayers
-      .filter(p => p.id && !p.id.toString().startsWith('scraped-'))
-      .map(p => ({
-        event_id: currentEvent.id,
-        player_name: p.name,
-        player_livegolf_id: p.id
-      }));
-
-    if (updates.length > 0) {
-      // Batch update LiveGolf IDs in scraped_fields
-      for (const update of updates) {
-        await supabase
-          .from('scraped_fields')
-          .update({ player_livegolf_id: update.player_livegolf_id })
-          .eq('event_id', update.event_id)
-          .eq('player_name', update.player_name);
-      }
-    }
-
-    return mergedPlayers;
   };
 
   /**
