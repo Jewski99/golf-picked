@@ -62,10 +62,13 @@ export default function Home() {
 
   const fetchEvents = async () => {
     try {
-      const response = await fetch(
-        `https://use.livegolfapi.com/v1/events?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}&tour=pga-tour`
-      );
+      const url = `https://use.livegolfapi.com/v1/events?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}&tour=pga-tour`;
+      console.log('Fetching events from:', url);
+
+      const response = await fetch(url);
       const data = await response.json();
+
+      console.log('Events API response:', data);
       const now = new Date();
       
       // Filter events - include current and upcoming
@@ -96,6 +99,7 @@ export default function Home() {
           }
         }
         
+        console.log('Selected event:', selectedEvent);
         setCurrentEvent(selectedEvent);
       }
     } catch (error) {
@@ -105,13 +109,30 @@ export default function Home() {
 
   const fetchPlayers = async () => {
     try {
-      const response = await fetch(
-        `https://use.livegolfapi.com/v1/events/${currentEvent.id}/players?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
-      );
+      const url = `https://use.livegolfapi.com/v1/events/${currentEvent.id}/players?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
+      console.log('Fetching players from:', url);
+
+      const response = await fetch(url);
       const data = await response.json();
-      setPlayers(data);
+
+      console.log('Players API response:', data);
+
+      // Handle different response formats
+      if (Array.isArray(data)) {
+        setPlayers(data);
+      } else if (data && Array.isArray(data.players)) {
+        setPlayers(data.players);
+      } else if (data && Array.isArray(data.data)) {
+        setPlayers(data.data);
+      } else if (data && Array.isArray(data.results)) {
+        setPlayers(data.results);
+      } else {
+        console.error('Unexpected players data format:', data);
+        setPlayers([]);
+      }
     } catch (error) {
       console.error('Error fetching players:', error);
+      setPlayers([]);
     }
   };
 
