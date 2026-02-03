@@ -18,14 +18,15 @@ export default function Home() {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [playerStats, setPlayerStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(false);
-  const [selectedPlayer, setSelectedPlayer] = useState(null);
-  const [playerStats, setPlayerStats] = useState(null);
-  const [loadingStats, setLoadingStats] = useState(false);
+  const [tournamentStarted, setTournamentStarted] = useState(false);
+  const [scrapingField, setScrapingField] = useState(false);
+  const [scrapeStatus, setScrapeStatus] = useState(null);
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-  );
+  // Create Supabase client with placeholder values during build/SSR
+  // The actual client will be created on the client-side with real env vars
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
+  const supabase = createClient(supabaseUrl, supabaseKey);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -105,15 +106,198 @@ export default function Home() {
     }
   };
 
+  /**
+   * Fetch players with conditional logic:
+   * - Before tournament (Mon-Wed): Use scraped_fields from Supabase
+   * - During tournament (Thu-Sun): Use LiveGolf API
+   * - Fallback: If scraped data unavailable, use LiveGolf API
+   */
   const fetchPlayers = async () => {
     try {
+      const now = new Date();
+      const tournamentStart = new Date(currentEvent.startDatetime);
+      const hasStarted = now >= tournamentStart;
+      setTournamentStarted(hasStarted);
+
+      // If tournament hasn't started, try to get scraped field data first
+      if (!hasStarted) {
+        console.log('[Players] Tournament not started, checking scraped field data...');
+        const scrapedPlayers = await fetchScrapedPlayers();
+
+        if (scrapedPlayers && scrapedPlayers.length > 0) {
+          console.log(`[Players] Using ${scrapedPlayers.length} players from scraped data`);
+          setPlayers(scrapedPlayers);
+          return;
+        }
+        console.log('[Players] No scraped data, falling back to LiveGolf API');
+      }
+
+      // Tournament has started or no scraped data - use LiveGolf API
       const response = await fetch(
         `https://use.livegolfapi.com/v1/events/${currentEvent.id}/players?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
       );
       const data = await response.json();
-      setPlayers(data);
+
+      // If we have both scraped data and LiveGolf data, merge player IDs
+      if (!hasStarted && data && data.length > 0) {
+        const mergedPlayers = await mergePlayerData(data);
+        setPlayers(mergedPlayers);
+      } else {
+        setPlayers(data);
+      }
     } catch (error) {
       console.error('Error fetching players:', error);
+      // Fallback: try LiveGolf API directly
+      try {
+        const response = await fetch(
+          `https://use.livegolfapi.com/v1/events/${currentEvent.id}/players?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
+        );
+        const data = await response.json();
+        setPlayers(data);
+      } catch (fallbackError) {
+        console.error('Fallback also failed:', fallbackError);
+      }
+    }
+  };
+
+  /**
+   * Fetch scraped player data from Supabase
+   */
+  const fetchScrapedPlayers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('scraped_fields')
+        .select('*')
+        .eq('event_id', currentEvent.id)
+        .order('player_name');
+
+      if (error) {
+        console.error('Error fetching scraped players:', error);
+        return null;
+      }
+
+      if (!data || data.length === 0) {
+        // Try matching by event name if ID doesn't match
+        const { data: nameMatch, error: nameError } = await supabase
+          .from('scraped_fields')
+          .select('*')
+          .ilike('event_name', `%${currentEvent.name}%`)
+          .order('player_name');
+
+        if (nameError || !nameMatch || nameMatch.length === 0) {
+          return null;
+        }
+
+        return nameMatch.map(p => ({
+          id: p.player_livegolf_id || p.player_pga_id || `scraped-${p.id}`,
+          name: p.player_name,
+          country: p.player_country,
+          _scraped: true
+        }));
+      }
+
+      return data.map(p => ({
+        id: p.player_livegolf_id || p.player_pga_id || `scraped-${p.id}`,
+        name: p.player_name,
+        country: p.player_country,
+        _scraped: true
+      }));
+    } catch (error) {
+      console.error('Error in fetchScrapedPlayers:', error);
+      return null;
+    }
+  };
+
+  /**
+   * Merge scraped player data with LiveGolf API data
+   * Uses LiveGolf player IDs when available for consistency
+   */
+  const mergePlayerData = async (liveGolfPlayers) => {
+    const scrapedPlayers = await fetchScrapedPlayers();
+    if (!scrapedPlayers || scrapedPlayers.length === 0) {
+      return liveGolfPlayers;
+    }
+
+    // Create a map of LiveGolf players by name for ID lookup
+    const liveGolfMap = new Map();
+    liveGolfPlayers.forEach(p => {
+      liveGolfMap.set(p.name.toLowerCase(), p);
+    });
+
+    // Update scraped players with LiveGolf IDs where available
+    const mergedPlayers = scrapedPlayers.map(scraped => {
+      const liveGolfPlayer = liveGolfMap.get(scraped.name.toLowerCase());
+      if (liveGolfPlayer) {
+        return {
+          ...scraped,
+          id: liveGolfPlayer.id, // Use LiveGolf ID for consistency
+          country: liveGolfPlayer.country || scraped.country
+        };
+      }
+      return scraped;
+    });
+
+    // Optionally update Supabase with LiveGolf IDs for future use
+    const updates = mergedPlayers
+      .filter(p => p.id && !p.id.toString().startsWith('scraped-'))
+      .map(p => ({
+        event_id: currentEvent.id,
+        player_name: p.name,
+        player_livegolf_id: p.id
+      }));
+
+    if (updates.length > 0) {
+      // Batch update LiveGolf IDs in scraped_fields
+      for (const update of updates) {
+        await supabase
+          .from('scraped_fields')
+          .update({ player_livegolf_id: update.player_livegolf_id })
+          .eq('event_id', update.event_id)
+          .eq('player_name', update.player_name);
+      }
+    }
+
+    return mergedPlayers;
+  };
+
+  /**
+   * Manually trigger field scrape for current event
+   */
+  const triggerFieldScrape = async () => {
+    if (!currentEvent) return;
+
+    setScrapingField(true);
+    setScrapeStatus(null);
+
+    try {
+      // Convert event name to slug
+      const eventSlug = currentEvent.name
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .trim();
+
+      const year = new Date(currentEvent.startDatetime).getFullYear();
+
+      const response = await fetch(
+        `/api/scrape-field?event=${eventSlug}&year=${year}&eventId=${currentEvent.id}&eventName=${encodeURIComponent(currentEvent.name)}`
+      );
+
+      const result = await response.json();
+
+      if (result.success) {
+        setScrapeStatus({ success: true, count: result.count });
+        // Refresh players to show scraped data
+        await fetchPlayers();
+      } else {
+        setScrapeStatus({ success: false, error: result.error });
+      }
+    } catch (error) {
+      console.error('Error triggering scrape:', error);
+      setScrapeStatus({ success: false, error: error.message });
+    } finally {
+      setScrapingField(false);
     }
   };
 
@@ -253,54 +437,6 @@ export default function Home() {
     setPlayerStats(null);
   };
 
-  const fetchPlayerStats = async (player) => {
-    setSelectedPlayer(player);
-    setLoadingStats(true);
-    
-    try {
-      // Fetch player's recent tournament history
-      const response = await fetch(
-        `https://use.livegolfapi.com/v1/players/${player.id}/results?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
-      );
-      const data = await response.json();
-      
-      // Calculate stats
-      const recentResults = data.slice(0, 5); // Last 5 tournaments
-      const seasonEarnings = data.reduce((sum, result) => sum + (result.earnings || 0), 0);
-      const bestFinish = data.reduce((best, result) => {
-        const pos = parseInt(result.position);
-        return pos < best ? pos : best;
-      }, 999);
-      
-      // Get how many times drafted in league
-      const { data: draftData } = await supabase
-        .from('draft_picks')
-        .select('*')
-        .eq('player_id', player.id);
-      
-      setPlayerStats({
-        recentResults,
-        seasonEarnings,
-        bestFinish: bestFinish === 999 ? 'N/A' : bestFinish,
-        timesDrafted: draftData?.length || 0,
-        leagueEarnings: draftData?.reduce((sum, pick) => {
-          // Calculate earnings from this league
-          return sum;
-        }, 0) || 0
-      });
-    } catch (error) {
-      console.error('Error fetching player stats:', error);
-      setPlayerStats(null);
-    } finally {
-      setLoadingStats(false);
-    }
-  };
-
-  const closePlayerModal = () => {
-    setSelectedPlayer(null);
-    setPlayerStats(null);
-  };
-
   const draftPlayer = async (player) => {
     const myPicks = draftPicks.filter(p => p.user_id === user.id);
     if (myPicks.length >= 4) return;
@@ -388,12 +524,76 @@ export default function Home() {
       {currentEvent && (
         <div style={{ maxWidth: '1200px', margin: '16px auto', padding: '0 16px' }}>
           <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px' }}>
-            <h2 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 'bold', color: '#ffffff' }}>
-              {currentEvent.name}
-            </h2>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '14px', color: '#ffffff' }}>
-              <span>📍 {currentEvent.location}</span>
-              <span>⛳ {currentEvent.course}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h2 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 'bold', color: '#ffffff' }}>
+                  {currentEvent.name}
+                </h2>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '14px', color: '#ffffff' }}>
+                  <span>📍 {currentEvent.location}</span>
+                  <span>⛳ {currentEvent.course}</span>
+                </div>
+              </div>
+
+              {/* Manual Scrape Button - shown before tournament starts */}
+              {!tournamentStarted && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                  <button
+                    onClick={triggerFieldScrape}
+                    disabled={scrapingField}
+                    style={{
+                      padding: '8px 16px',
+                      background: scrapingField ? '#334155' : '#3b82f6',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: scrapingField ? 'not-allowed' : 'pointer',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    {scrapingField ? (
+                      <>
+                        <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span>
+                        Scraping...
+                      </>
+                    ) : (
+                      <>🔄 Refresh Field</>
+                    )}
+                  </button>
+                  {scrapeStatus && (
+                    <span style={{
+                      fontSize: '12px',
+                      color: scrapeStatus.success ? '#10b981' : '#ef4444'
+                    }}>
+                      {scrapeStatus.success
+                        ? `✓ Found ${scrapeStatus.count} players`
+                        : `✗ ${scrapeStatus.error}`
+                      }
+                    </span>
+                  )}
+                  <span style={{ fontSize: '11px', color: '#64748b' }}>
+                    Data source: {players.some(p => p._scraped) ? 'PGA Tour (scraped)' : 'LiveGolf API'}
+                  </span>
+                </div>
+              )}
+
+              {/* Tournament Status Badge */}
+              {tournamentStarted && (
+                <span style={{
+                  padding: '6px 12px',
+                  background: '#065f46',
+                  color: '#10b981',
+                  borderRadius: '20px',
+                  fontSize: '12px',
+                  fontWeight: 600
+                }}>
+                  🏌️ Tournament In Progress
+                </span>
+              )}
             </div>
           </div>
         </div>
