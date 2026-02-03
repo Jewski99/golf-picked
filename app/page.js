@@ -107,67 +107,48 @@ export default function Home() {
     }
   };
 
-  const fetchPlayers = async () => {
+const fetchPlayers = async () => {
+    if (!currentEvent?.id) {
+      console.log('No current event selected');
+      return;
+    }
+
     try {
-      const url = `https://use.livegolfapi.com/v1/events/${currentEvent.id}/players?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
-      console.log('Fetching players from:', url);
-
-      const response = await fetch(url);
-      const data = await response.json();
-
-      console.log('Players API response:', data);
-
-      // Handle different response formats
-      let playerList = [];
-      if (Array.isArray(data)) {
-        playerList = data;
-      } else if (data && Array.isArray(data.players)) {
-        playerList = data.players;
-      } else if (data && Array.isArray(data.data)) {
-        playerList = data.data;
-      } else if (data && Array.isArray(data.results)) {
-        playerList = data.results;
-      } else {
-        console.error('Unexpected players data format:', data);
+      console.log(`Fetching players for: ${currentEvent.name} (ID: ${currentEvent.id})`);
+      
+      // LiveGolf API uses the leaderboard endpoint which includes all players in the field
+      const leaderboardUrl = `https://use.livegolfapi.com/v1/events/${currentEvent.id}/leaderboard?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
+      console.log('Fetching from leaderboard endpoint:', leaderboardUrl);
+      
+      const response = await fetch(leaderboardUrl);
+      
+      if (!response.ok) {
+        console.error(`Leaderboard endpoint failed with status: ${response.status}`);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-
-      // If players endpoint returned data, use it
-      if (playerList.length > 0) {
-        setPlayers(playerList);
-        return;
-      }
-
-      // Fallback: try to get players from leaderboard endpoint
-      console.log('Players endpoint empty, trying leaderboard fallback...');
-      const lbUrl = `https://use.livegolfapi.com/v1/events/${currentEvent.id}/leaderboard?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
-      const lbResponse = await fetch(lbUrl);
-      const lbData = await lbResponse.json();
-
-      console.log('Leaderboard API response (for players fallback):', lbData);
-
-      if (Array.isArray(lbData) && lbData.length > 0) {
-        // Leaderboard entries typically have player info
-        const playersFromLb = lbData.map(entry => ({
-          id: entry.playerId || entry.player_id || entry.id,
-          name: entry.playerName || entry.player_name || entry.name || `${entry.firstName} ${entry.lastName}`,
-          country: entry.country || entry.nationality || ''
-        })).filter(p => p.id && p.name);
-
-        console.log('Extracted players from leaderboard:', playersFromLb);
-        setPlayers(playersFromLb);
-      } else if (lbData && Array.isArray(lbData.leaderboard)) {
-        const playersFromLb = lbData.leaderboard.map(entry => ({
-          id: entry.playerId || entry.player_id || entry.id,
-          name: entry.playerName || entry.player_name || entry.name || `${entry.firstName} ${entry.lastName}`,
-          country: entry.country || entry.nationality || ''
-        })).filter(p => p.id && p.name);
-
-        setPlayers(playersFromLb);
+      
+      const leaderboardData = await response.json();
+      console.log('Leaderboard API response:', leaderboardData);
+      
+      if (Array.isArray(leaderboardData) && leaderboardData.length > 0) {
+        // Extract player data from leaderboard
+        const playersFromLeaderboard = leaderboardData.map(entry => ({
+          id: entry.player?.id || entry.playerId || entry.id,
+          name: entry.player?.name || entry.playerName || entry.name,
+          country: entry.player?.country || entry.country || 'Unknown',
+          position: entry.position || '-',
+          score: entry.score || '-',
+          thru: entry.thru || entry.through || '-'
+        }));
+        
+        setPlayers(playersFromLeaderboard);
+        console.log(`✅ Successfully loaded ${playersFromLeaderboard.length} players from leaderboard`);
       } else {
+        console.error('❌ Leaderboard returned empty or invalid data');
         setPlayers([]);
       }
     } catch (error) {
-      console.error('Error fetching players:', error);
+      console.error('❌ Error fetching players:', error);
       setPlayers([]);
     }
   };
