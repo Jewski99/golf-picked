@@ -18,9 +18,6 @@ export default function Home() {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [playerStats, setPlayerStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(false);
-  const [tournamentStarted, setTournamentStarted] = useState(false);
-  const [scrapingField, setScrapingField] = useState(false);
-  const [scrapeStatus, setScrapeStatus] = useState(null);
 
   // Create Supabase client with placeholder values during build/SSR
   // The actual client will be created on the client-side with real env vars
@@ -106,169 +103,15 @@ export default function Home() {
     }
   };
 
-  /**
-   * Fetch players with conditional logic:
-   * - Before tournament (Mon-Wed): Try scraped_fields first, fallback to LiveGolf API
-   * - During tournament (Thu-Sun): Use LiveGolf API exclusively
-   */
   const fetchPlayers = async () => {
-    // Determine if tournament has started
-    const now = new Date();
-    const tournamentStart = new Date(currentEvent.startDatetime);
-    const hasStarted = now >= tournamentStart;
-    setTournamentStarted(hasStarted);
-
-    // ALWAYS fetch from LiveGolf API first (this is the reliable source)
-    let liveGolfData = [];
     try {
       const response = await fetch(
         `https://use.livegolfapi.com/v1/events/${currentEvent.id}/players?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
       );
       const data = await response.json();
-      // Ensure we have an array
-      if (Array.isArray(data)) {
-        liveGolfData = data;
-      }
+      setPlayers(data);
     } catch (error) {
-      console.error('Error fetching from LiveGolf API:', error);
-    }
-
-    // If tournament has started, just use LiveGolf data
-    if (hasStarted) {
-      setPlayers(liveGolfData);
-      return;
-    }
-
-    // Tournament hasn't started - try to get scraped data for early field visibility
-    try {
-      const scrapedPlayers = await fetchScrapedPlayers();
-
-      if (scrapedPlayers && scrapedPlayers.length > 0) {
-        console.log(`[Players] Using ${scrapedPlayers.length} players from scraped data`);
-
-        // Merge with LiveGolf IDs if available
-        if (liveGolfData.length > 0) {
-          const liveGolfMap = new Map();
-          liveGolfData.forEach(p => {
-            liveGolfMap.set(p.name.toLowerCase(), p);
-          });
-
-          const mergedPlayers = scrapedPlayers.map(scraped => {
-            const liveGolfPlayer = liveGolfMap.get(scraped.name.toLowerCase());
-            if (liveGolfPlayer) {
-              return { ...scraped, id: liveGolfPlayer.id };
-            }
-            return scraped;
-          });
-
-          setPlayers(mergedPlayers);
-        } else {
-          setPlayers(scrapedPlayers);
-        }
-        return;
-      }
-    } catch (error) {
-      console.error('Error fetching scraped players:', error);
-    }
-
-    // Fallback to LiveGolf data
-    console.log('[Players] Using LiveGolf API data');
-    setPlayers(liveGolfData);
-  };
-
-  /**
-   * Fetch scraped player data from Supabase
-   * Returns null if table doesn't exist or no data found
-   */
-  const fetchScrapedPlayers = async () => {
-    try {
-      // First try by event_id
-      const { data, error } = await supabase
-        .from('scraped_fields')
-        .select('*')
-        .eq('event_id', currentEvent.id)
-        .order('player_name');
-
-      // If table doesn't exist or query failed, return null
-      if (error) {
-        // Don't log error if table just doesn't exist yet
-        if (!error.message?.includes('does not exist')) {
-          console.log('[ScrapedPlayers] Query error:', error.message);
-        }
-        return null;
-      }
-
-      if (data && data.length > 0) {
-        return data.map(p => ({
-          id: p.player_livegolf_id || p.player_pga_id || `scraped-${p.id}`,
-          name: p.player_name,
-          country: p.player_country,
-          _scraped: true
-        }));
-      }
-
-      // Try matching by event name if ID doesn't match
-      const { data: nameMatch, error: nameError } = await supabase
-        .from('scraped_fields')
-        .select('*')
-        .ilike('event_name', `%${currentEvent.name}%`)
-        .order('player_name');
-
-      if (nameError || !nameMatch || nameMatch.length === 0) {
-        return null;
-      }
-
-      return nameMatch.map(p => ({
-        id: p.player_livegolf_id || p.player_pga_id || `scraped-${p.id}`,
-        name: p.player_name,
-        country: p.player_country,
-        _scraped: true
-      }));
-    } catch (error) {
-      // Silently fail - we'll fall back to LiveGolf API
-      console.log('[ScrapedPlayers] Exception:', error.message);
-      return null;
-    }
-  };
-
-  /**
-   * Manually trigger field scrape for current event
-   */
-  const triggerFieldScrape = async () => {
-    if (!currentEvent) return;
-
-    setScrapingField(true);
-    setScrapeStatus(null);
-
-    try {
-      // Convert event name to slug
-      const eventSlug = currentEvent.name
-        .toLowerCase()
-        .replace(/[^a-z0-9\s-]/g, '')
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-')
-        .trim();
-
-      const year = new Date(currentEvent.startDatetime).getFullYear();
-
-      const response = await fetch(
-        `/api/scrape-field?event=${eventSlug}&year=${year}&eventId=${currentEvent.id}&eventName=${encodeURIComponent(currentEvent.name)}`
-      );
-
-      const result = await response.json();
-
-      if (result.success) {
-        setScrapeStatus({ success: true, count: result.count });
-        // Refresh players to show scraped data
-        await fetchPlayers();
-      } else {
-        setScrapeStatus({ success: false, error: result.error });
-      }
-    } catch (error) {
-      console.error('Error triggering scrape:', error);
-      setScrapeStatus({ success: false, error: error.message });
-    } finally {
-      setScrapingField(false);
+      console.error('Error fetching players:', error);
     }
   };
 
@@ -506,65 +349,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Admin Controls & Status */}
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-                {/* Tournament Status Badge */}
-                {tournamentStarted && (
-                  <span style={{
-                    padding: '4px 10px',
-                    background: '#065f46',
-                    color: '#10b981',
-                    borderRadius: '12px',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    marginBottom: '4px'
-                  }}>
-                    🏌️ Live
-                  </span>
-                )}
-
-                {/* Manual Scrape Button - always visible for admin */}
-                <button
-                  onClick={triggerFieldScrape}
-                  disabled={scrapingField}
-                  style={{
-                    padding: '8px 16px',
-                    background: scrapingField ? '#334155' : '#3b82f6',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: scrapingField ? 'not-allowed' : 'pointer',
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  {scrapingField ? (
-                    <>
-                      <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span>
-                      Scraping...
-                    </>
-                  ) : (
-                    <>🔄 Refresh Field</>
-                  )}
-                </button>
-                {scrapeStatus && (
-                  <span style={{
-                    fontSize: '12px',
-                    color: scrapeStatus.success ? '#10b981' : '#ef4444'
-                  }}>
-                    {scrapeStatus.success
-                      ? `✓ Found ${scrapeStatus.count} players`
-                      : `✗ ${scrapeStatus.error}`
-                    }
-                  </span>
-                )}
-                <span style={{ fontSize: '11px', color: '#64748b' }}>
-                  {players.length} players • {players.some(p => p._scraped) ? 'Scraped' : 'LiveGolf API'}
-                </span>
-              </div>
             </div>
           </div>
         </div>

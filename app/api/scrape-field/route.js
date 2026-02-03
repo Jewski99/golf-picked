@@ -2,16 +2,13 @@
  * PGA Tour Field API Endpoint
  * ===========================
  *
- * This endpoint fetches tournament field data from the PGA Tour's GraphQL API
+ * This endpoint fetches tournament field data from the PGA Tour's public APIs
  * and stores it in Supabase for early draft visibility (Mon-Wed before
  * the tournament starts).
  *
  * Endpoints:
  * - GET /api/scrape-field?event=tournament-slug&year=2026&eventId=123&eventName=Name
  * - GET /api/scrape-field?cron=true (auto-detects upcoming event)
- *
- * Once the tournament starts (Thursday), the main app switches to
- * LiveGolf API for live scoring and complete player data.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -37,132 +34,108 @@ function getSupabase() {
   return supabase;
 }
 
-// PGA Tour GraphQL API endpoint
-const PGA_TOUR_API = "https://orchestrator.pgatour.com/graphql";
-
 /**
- * Fetch tournament schedule to find tournament ID
+ * Fetch tournament schedule from PGA Tour stats API
  */
 async function fetchTournamentSchedule(year) {
-  const query = `
-    query Schedule($tourCode: TourCode!, $year: String!) {
-      schedule(tourCode: $tourCode, year: $year) {
-        completed {
-          id
-          tournamentName
-          startDate
-          endDate
-        }
-        upcoming {
-          id
-          tournamentName
-          startDate
-          endDate
-        }
-        inProgress {
-          id
-          tournamentName
-          startDate
-          endDate
-        }
-      }
-    }
-  `;
-
-  const response = await fetch(PGA_TOUR_API, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": "da2-gsrx5bibzbb4njvhl7t37wqyl4",
-    },
-    body: JSON.stringify({
-      query,
-      variables: { tourCode: "R", year: String(year) },
-    }),
-  });
-
-  const data = await response.json();
-  return data?.data?.schedule;
-}
-
-/**
- * Fetch tournament field from PGA Tour GraphQL API
- */
-async function fetchTournamentField(tournamentId) {
-  const query = `
-    query TournamentField($tournamentId: ID!) {
-      field(tournamentId: $tournamentId) {
-        id
-        firstName
-        lastName
-        country
-        countryFlag
-      }
-    }
-  `;
-
-  const response = await fetch(PGA_TOUR_API, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": "da2-gsrx5bibzbb4njvhl7t37wqyl4",
-    },
-    body: JSON.stringify({
-      query,
-      variables: { tournamentId },
-    }),
-  });
-
-  const data = await response.json();
-  return data?.data?.field || [];
-}
-
-/**
- * Alternative: Fetch field using tournament permalink
- */
-async function fetchFieldByPermalink(year, tournamentId) {
-  // Try the leaderboard endpoint which often has field data before tournament starts
-  const query = `
-    query Leaderboard($tournamentId: ID!) {
-      leaderboardV2(tournamentId: $tournamentId) {
-        players {
-          id
-          player {
-            id
-            firstName
-            lastName
-            country
-            countryFlag
-          }
-        }
-      }
-    }
-  `;
-
   try {
-    const response = await fetch(PGA_TOUR_API, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": "da2-gsrx5bibzbb4njvhl7t37wqyl4",
-      },
-      body: JSON.stringify({
-        query,
-        variables: { tournamentId },
-      }),
-    });
+    // Try the PGA Tour schedule endpoint
+    const response = await fetch(
+      `https://statdata.pgatour.com/r/current/schedule-v2.json`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      }
+    );
+
+    if (!response.ok) {
+      console.log(`[Scraper] Schedule API returned ${response.status}`);
+      return null;
+    }
 
     const data = await response.json();
-    const players = data?.data?.leaderboardV2?.players || [];
-
-    return players.map((p) => ({
-      id: p.player?.id || p.id,
-      firstName: p.player?.firstName,
-      lastName: p.player?.lastName,
-      country: p.player?.country || p.player?.countryFlag,
-    }));
+    return data;
   } catch (error) {
-    console.error("[Scraper] Leaderboard fetch failed:", error);
+    console.error("[Scraper] Error fetching schedule:", error.message);
+    return null;
+  }
+}
+
+/**
+ * Fetch tournament field from PGA Tour stats API
+ */
+async function fetchTournamentField(tournamentId) {
+  try {
+    // Try the field endpoint
+    const response = await fetch(
+      `https://statdata.pgatour.com/r/${tournamentId}/field.json`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      }
+    );
+
+    if (!response.ok) {
+      console.log(`[Scraper] Field API returned ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+
+    // Extract players from the field data
+    if (data.Tournament?.Players) {
+      return data.Tournament.Players.map(p => ({
+        id: p.TournamentPlayerId || p.PlayerId,
+        firstName: p.PlayerFirstName,
+        lastName: p.PlayerLastName,
+        country: p.PlayerCountry || p.Country
+      }));
+    }
+
+    return [];
+  } catch (error) {
+    console.error("[Scraper] Error fetching field:", error.message);
+    return [];
+  }
+}
+
+/**
+ * Alternative: Fetch from leaderboard endpoint (works during tournament)
+ */
+async function fetchFromLeaderboard(tournamentId) {
+  try {
+    const response = await fetch(
+      `https://statdata.pgatour.com/r/${tournamentId}/leaderboard-v2.json`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      }
+    );
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const data = await response.json();
+
+    if (data.leaderboard?.players) {
+      return data.leaderboard.players.map(p => ({
+        id: p.player_id,
+        firstName: p.player_bio?.first_name || p.first_name,
+        lastName: p.player_bio?.last_name || p.last_name,
+        country: p.player_bio?.country || p.country
+      }));
+    }
+
+    return [];
+  } catch (error) {
+    console.error("[Scraper] Error fetching leaderboard:", error.message);
     return [];
   }
 }
@@ -171,31 +144,58 @@ async function fetchFieldByPermalink(year, tournamentId) {
  * Find tournament in schedule by name matching
  */
 function findTournamentInSchedule(schedule, eventName) {
-  if (!schedule) return null;
+  if (!schedule?.years?.[0]?.tours) return null;
 
-  const allTournaments = [
-    ...(schedule.upcoming || []),
-    ...(schedule.inProgress || []),
-    ...(schedule.completed || []),
-  ];
+  const searchName = eventName.toLowerCase();
+  const searchTerms = searchName.split(' ').filter(t => t.length > 2);
 
-  // Try exact match first
-  let match = allTournaments.find(
-    (t) => t.tournamentName.toLowerCase() === eventName.toLowerCase()
-  );
+  // Look through all tours (primarily PGA Tour)
+  for (const tour of schedule.years[0].tours) {
+    if (!tour.trns) continue;
 
-  // Try partial match
-  if (!match) {
-    const searchTerms = eventName.toLowerCase().split(" ");
-    match = allTournaments.find((t) => {
-      const tournName = t.tournamentName.toLowerCase();
-      return searchTerms.some(
-        (term) => term.length > 3 && tournName.includes(term)
-      );
-    });
+    for (const tournament of tour.trns) {
+      const tournName = (tournament.trnName?.long || tournament.trnName?.short || '').toLowerCase();
+
+      // Exact match
+      if (tournName === searchName) {
+        return tournament;
+      }
+
+      // Partial match - check if key terms match
+      const matchCount = searchTerms.filter(term => tournName.includes(term)).length;
+      if (matchCount >= 2 || (searchTerms.length === 1 && matchCount === 1)) {
+        return tournament;
+      }
+    }
   }
 
-  return match;
+  return null;
+}
+
+/**
+ * Get current/upcoming tournament from schedule
+ */
+function getCurrentTournament(schedule) {
+  if (!schedule?.years?.[0]?.tours) return null;
+
+  const now = new Date();
+
+  for (const tour of schedule.years[0].tours) {
+    if (tour.tourCodeLc !== 'r') continue; // Only PGA Tour
+    if (!tour.trns) continue;
+
+    for (const tournament of tour.trns) {
+      const startDate = new Date(tournament.date?.start);
+      const endDate = new Date(tournament.date?.end);
+
+      // Currently in progress or upcoming within next 7 days
+      if (now <= endDate) {
+        return tournament;
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -214,12 +214,19 @@ async function storePlayersInSupabase(
     event_name: eventName,
     event_slug: eventSlug,
     event_year: year,
-    player_name: `${player.firstName} ${player.lastName}`.trim(),
+    player_name: `${player.firstName || ''} ${player.lastName || ''}`.trim(),
     player_country: player.country,
     player_pga_id: player.id,
     source_url: sourceUrl || "pga-tour-api",
     scraped_at: new Date().toISOString(),
   }));
+
+  // Filter out any records with empty names
+  const validRecords = records.filter(r => r.player_name.length > 1);
+
+  if (validRecords.length === 0) {
+    throw new Error("No valid player records to store");
+  }
 
   // Delete existing records for this event to avoid duplicates
   const { error: deleteError } = await getSupabase()
@@ -228,16 +235,13 @@ async function storePlayersInSupabase(
     .eq("event_id", eventId);
 
   if (deleteError) {
-    console.error(
-      "[Scraper] Warning: Could not delete existing records:",
-      deleteError
-    );
+    console.error("[Scraper] Warning: Could not delete existing records:", deleteError);
   }
 
   // Insert new records
   const { data, error } = await getSupabase()
     .from("scraped_fields")
-    .insert(records)
+    .insert(validRecords)
     .select();
 
   if (error) {
@@ -250,15 +254,9 @@ async function storePlayersInSupabase(
 }
 
 /**
- * Logs scrape attempt to scrape_logs table
+ * Logs scrape attempt
  */
-async function logScrapeAttempt(
-  eventName,
-  eventSlug,
-  playersFound,
-  status,
-  errorMessage = null
-) {
+async function logScrapeAttempt(eventName, eventSlug, playersFound, status, errorMessage = null) {
   try {
     await getSupabase().from("scrape_logs").insert({
       event_name: eventName,
@@ -279,50 +277,69 @@ async function fetchField(eventSlug, year, eventId, eventName) {
   console.log(`[Scraper] Fetching field for: ${eventName} (${year})`);
 
   try {
-    // Step 1: Get tournament schedule to find the PGA Tour tournament ID
+    // Step 1: Get tournament schedule
     const schedule = await fetchTournamentSchedule(year);
 
-    if (!schedule) {
-      throw new Error("Could not fetch PGA Tour schedule");
+    let tournament = null;
+    let pgaTournamentId = null;
+
+    if (schedule) {
+      // Step 2: Find the tournament in the schedule
+      tournament = findTournamentInSchedule(schedule, eventName);
+
+      if (tournament) {
+        pgaTournamentId = tournament.permNum || tournament.trnId;
+        console.log(`[Scraper] Found tournament: ${tournament.trnName?.long} (ID: ${pgaTournamentId})`);
+      } else {
+        console.log("[Scraper] Tournament not found in schedule, trying current tournament...");
+        tournament = getCurrentTournament(schedule);
+        if (tournament) {
+          pgaTournamentId = tournament.permNum || tournament.trnId;
+          console.log(`[Scraper] Using current tournament: ${tournament.trnName?.long} (ID: ${pgaTournamentId})`);
+        }
+      }
     }
 
-    // Step 2: Find the tournament in the schedule
-    const tournament = findTournamentInSchedule(schedule, eventName);
+    // Step 3: Try to fetch field data
+    let players = [];
 
-    if (!tournament) {
-      console.log("[Scraper] Available tournaments:",
-        [...(schedule.upcoming || []), ...(schedule.inProgress || [])]
-          .map(t => t.tournamentName)
-          .join(", ")
+    if (pgaTournamentId) {
+      // Try field endpoint first
+      players = await fetchTournamentField(pgaTournamentId);
+
+      // If field is empty, try leaderboard
+      if (players.length === 0) {
+        console.log("[Scraper] Field empty, trying leaderboard...");
+        players = await fetchFromLeaderboard(pgaTournamentId);
+      }
+    }
+
+    // Step 4: If still no players, try the "current" tournament ID format
+    if (players.length === 0) {
+      console.log("[Scraper] Trying 'current' tournament endpoint...");
+      players = await fetchTournamentField("current");
+
+      if (players.length === 0) {
+        players = await fetchFromLeaderboard("current");
+      }
+    }
+
+    if (players.length === 0) {
+      throw new Error(
+        "No players found. The field may not be published yet, or try again closer to the tournament."
       );
-      throw new Error(`Tournament "${eventName}" not found in PGA Tour schedule`);
-    }
-
-    console.log(`[Scraper] Found tournament: ${tournament.tournamentName} (ID: ${tournament.id})`);
-
-    // Step 3: Fetch the field
-    let players = await fetchTournamentField(tournament.id);
-
-    // If field endpoint doesn't return data, try leaderboard
-    if (!players || players.length === 0) {
-      console.log("[Scraper] Field empty, trying leaderboard endpoint...");
-      players = await fetchFieldByPermalink(year, tournament.id);
-    }
-
-    if (!players || players.length === 0) {
-      throw new Error("No players found for this tournament");
     }
 
     console.log(`[Scraper] Found ${players.length} players`);
 
-    // Step 4: Store in Supabase
+    // Step 5: Store in Supabase
     const storedPlayers = await storePlayersInSupabase(
       players,
       eventId,
       eventName,
       eventSlug,
       year,
-      `pga-tour-api:${tournament.id}`
+      pgaTournamentId ? `pga-stats:${pgaTournamentId}` : "pga-stats:current"
     );
 
     // Log successful scrape
@@ -335,7 +352,7 @@ async function fetchField(eventSlug, year, eventId, eventName) {
         name: eventName,
         slug: eventSlug,
         year: year,
-        pgaTourId: tournament.id,
+        pgaTourId: pgaTournamentId,
       },
       players: storedPlayers,
       count: storedPlayers.length,
@@ -343,10 +360,7 @@ async function fetchField(eventSlug, year, eventId, eventName) {
     };
   } catch (error) {
     console.error(`[Scraper] Failed:`, error);
-
-    // Log failed scrape
     await logScrapeAttempt(eventName, eventSlug, 0, "failed", error.message);
-
     throw error;
   }
 }
@@ -362,7 +376,6 @@ async function getUpcomingEvent() {
     const events = await response.json();
     const now = new Date();
 
-    // Find the next upcoming event that hasn't started yet
     for (const event of events) {
       const startDate = new Date(event.startDatetime);
       if (startDate > now) {
@@ -370,7 +383,6 @@ async function getUpcomingEvent() {
       }
     }
 
-    // If no upcoming, return current in-progress event
     for (const event of events) {
       const startDate = new Date(event.startDatetime);
       const endDate = new Date(event.endDatetime);
@@ -410,42 +422,27 @@ export async function GET(request) {
     const eventName = searchParams.get("eventName");
     const cron = searchParams.get("cron");
 
-    // If this is a cron job trigger, auto-detect the upcoming event
     if (cron === "true") {
-      console.log("[Scraper] Cron job triggered - finding upcoming event");
+      console.log("[Scraper] Cron job triggered");
 
       const upcomingEvent = await getUpcomingEvent();
       if (!upcomingEvent) {
-        return Response.json(
-          {
-            success: false,
-            error: "No upcoming event found",
-          },
-          { status: 404 }
-        );
+        return Response.json({ success: false, error: "No upcoming event found" }, { status: 404 });
       }
 
       const eventYear = new Date(upcomingEvent.startDatetime).getFullYear();
       const slug = eventNameToSlug(upcomingEvent.name);
 
-      const result = await fetchField(
-        slug,
-        eventYear,
-        upcomingEvent.id,
-        upcomingEvent.name
-      );
-
+      const result = await fetchField(slug, eventYear, upcomingEvent.id, upcomingEvent.name);
       return Response.json(result);
     }
 
-    // Manual trigger requires eventName
     if (!eventName) {
       return Response.json(
         {
           success: false,
           error: "Missing required parameter: eventName",
-          example:
-            "/api/scrape-field?eventName=WM%20Phoenix%20Open&year=2026&eventId=123",
+          example: "/api/scrape-field?eventName=WM%20Phoenix%20Open&year=2026&eventId=123",
         },
         { status: 400 }
       );
@@ -461,13 +458,11 @@ export async function GET(request) {
     return Response.json(result);
   } catch (error) {
     console.error("[Scraper] API Error:", error);
-
     return Response.json(
       {
         success: false,
         error: error.message,
-        details:
-          "Failed to fetch field data. The tournament may not be available yet.",
+        details: "Failed to fetch field data. The field may not be published yet.",
       },
       { status: 500 }
     );
@@ -480,23 +475,14 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const {
-      eventSlug,
-      year = new Date().getFullYear(),
-      eventId,
-      eventName,
-    } = body;
+    const { eventSlug, year = new Date().getFullYear(), eventId, eventName } = body;
 
     if (!eventName) {
       return Response.json(
         {
           success: false,
           error: "Missing required field: eventName",
-          example: {
-            eventName: "WM Phoenix Open",
-            year: 2026,
-            eventId: "123",
-          },
+          example: { eventName: "WM Phoenix Open", year: 2026, eventId: "123" },
         },
         { status: 400 }
       );
@@ -512,12 +498,11 @@ export async function POST(request) {
     return Response.json(result);
   } catch (error) {
     console.error("[Scraper] API Error:", error);
-
     return Response.json(
       {
         success: false,
         error: error.message,
-        details: "Failed to fetch field data. Check server logs for details.",
+        details: "Failed to fetch field data.",
       },
       { status: 500 }
     );
