@@ -18,14 +18,12 @@ export default function Home() {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [playerStats, setPlayerStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(false);
-  const [selectedPlayer, setSelectedPlayer] = useState(null);
-  const [playerStats, setPlayerStats] = useState(null);
-  const [loadingStats, setLoadingStats] = useState(false);
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-  );
+  // Create Supabase client with placeholder values during build/SSR
+  // The actual client will be created on the client-side with real env vars
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
+  const supabase = createClient(supabaseUrl, supabaseKey);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -253,54 +251,6 @@ export default function Home() {
     setPlayerStats(null);
   };
 
-  const fetchPlayerStats = async (player) => {
-    setSelectedPlayer(player);
-    setLoadingStats(true);
-    
-    try {
-      // Fetch player's recent tournament history
-      const response = await fetch(
-        `https://use.livegolfapi.com/v1/players/${player.id}/results?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
-      );
-      const data = await response.json();
-      
-      // Calculate stats
-      const recentResults = data.slice(0, 5); // Last 5 tournaments
-      const seasonEarnings = data.reduce((sum, result) => sum + (result.earnings || 0), 0);
-      const bestFinish = data.reduce((best, result) => {
-        const pos = parseInt(result.position);
-        return pos < best ? pos : best;
-      }, 999);
-      
-      // Get how many times drafted in league
-      const { data: draftData } = await supabase
-        .from('draft_picks')
-        .select('*')
-        .eq('player_id', player.id);
-      
-      setPlayerStats({
-        recentResults,
-        seasonEarnings,
-        bestFinish: bestFinish === 999 ? 'N/A' : bestFinish,
-        timesDrafted: draftData?.length || 0,
-        leagueEarnings: draftData?.reduce((sum, pick) => {
-          // Calculate earnings from this league
-          return sum;
-        }, 0) || 0
-      });
-    } catch (error) {
-      console.error('Error fetching player stats:', error);
-      setPlayerStats(null);
-    } finally {
-      setLoadingStats(false);
-    }
-  };
-
-  const closePlayerModal = () => {
-    setSelectedPlayer(null);
-    setPlayerStats(null);
-  };
-
   const draftPlayer = async (player) => {
     const myPicks = draftPicks.filter(p => p.user_id === user.id);
     if (myPicks.length >= 4) return;
@@ -388,12 +338,17 @@ export default function Home() {
       {currentEvent && (
         <div style={{ maxWidth: '1200px', margin: '16px auto', padding: '0 16px' }}>
           <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px' }}>
-            <h2 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 'bold', color: '#ffffff' }}>
-              {currentEvent.name}
-            </h2>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '14px', color: '#ffffff' }}>
-              <span>📍 {currentEvent.location}</span>
-              <span>⛳ {currentEvent.course}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h2 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 'bold', color: '#ffffff' }}>
+                  {currentEvent.name}
+                </h2>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '14px', color: '#ffffff' }}>
+                  <span>📍 {currentEvent.location}</span>
+                  <span>⛳ {currentEvent.course}</span>
+                </div>
+              </div>
+
             </div>
           </div>
         </div>
