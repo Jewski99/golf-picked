@@ -62,10 +62,13 @@ export default function Home() {
 
   const fetchEvents = async () => {
     try {
-      const response = await fetch(
-        `https://use.livegolfapi.com/v1/events?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}&tour=pga-tour`
-      );
+      const url = `https://use.livegolfapi.com/v1/events?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}&tour=pga-tour`;
+      console.log('Fetching events from:', url);
+
+      const response = await fetch(url);
       const data = await response.json();
+
+      console.log('Events API response:', data);
       const now = new Date();
       
       // Filter events - include current and upcoming
@@ -96,6 +99,7 @@ export default function Home() {
           }
         }
         
+        console.log('Selected event:', selectedEvent);
         setCurrentEvent(selectedEvent);
       }
     } catch (error) {
@@ -105,13 +109,66 @@ export default function Home() {
 
   const fetchPlayers = async () => {
     try {
-      const response = await fetch(
-        `https://use.livegolfapi.com/v1/events/${currentEvent.id}/players?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
-      );
+      const url = `https://use.livegolfapi.com/v1/events/${currentEvent.id}/players?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
+      console.log('Fetching players from:', url);
+
+      const response = await fetch(url);
       const data = await response.json();
-      setPlayers(data);
+
+      console.log('Players API response:', data);
+
+      // Handle different response formats
+      let playerList = [];
+      if (Array.isArray(data)) {
+        playerList = data;
+      } else if (data && Array.isArray(data.players)) {
+        playerList = data.players;
+      } else if (data && Array.isArray(data.data)) {
+        playerList = data.data;
+      } else if (data && Array.isArray(data.results)) {
+        playerList = data.results;
+      } else {
+        console.error('Unexpected players data format:', data);
+      }
+
+      // If players endpoint returned data, use it
+      if (playerList.length > 0) {
+        setPlayers(playerList);
+        return;
+      }
+
+      // Fallback: try to get players from leaderboard endpoint
+      console.log('Players endpoint empty, trying leaderboard fallback...');
+      const lbUrl = `https://use.livegolfapi.com/v1/events/${currentEvent.id}/leaderboard?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
+      const lbResponse = await fetch(lbUrl);
+      const lbData = await lbResponse.json();
+
+      console.log('Leaderboard API response (for players fallback):', lbData);
+
+      if (Array.isArray(lbData) && lbData.length > 0) {
+        // Leaderboard entries typically have player info
+        const playersFromLb = lbData.map(entry => ({
+          id: entry.playerId || entry.player_id || entry.id,
+          name: entry.playerName || entry.player_name || entry.name || `${entry.firstName} ${entry.lastName}`,
+          country: entry.country || entry.nationality || ''
+        })).filter(p => p.id && p.name);
+
+        console.log('Extracted players from leaderboard:', playersFromLb);
+        setPlayers(playersFromLb);
+      } else if (lbData && Array.isArray(lbData.leaderboard)) {
+        const playersFromLb = lbData.leaderboard.map(entry => ({
+          id: entry.playerId || entry.player_id || entry.id,
+          name: entry.playerName || entry.player_name || entry.name || `${entry.firstName} ${entry.lastName}`,
+          country: entry.country || entry.nationality || ''
+        })).filter(p => p.id && p.name);
+
+        setPlayers(playersFromLb);
+      } else {
+        setPlayers([]);
+      }
     } catch (error) {
       console.error('Error fetching players:', error);
+      setPlayers([]);
     }
   };
 
