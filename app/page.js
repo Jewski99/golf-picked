@@ -1036,3 +1036,4 @@ function AuthForm({ supabase }) {
   );
 }
 
+
