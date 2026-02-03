@@ -506,65 +506,65 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Manual Scrape Button - shown before tournament starts */}
-              {!tournamentStarted && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-                  <button
-                    onClick={triggerFieldScrape}
-                    disabled={scrapingField}
-                    style={{
-                      padding: '8px 16px',
-                      background: scrapingField ? '#334155' : '#3b82f6',
-                      color: '#ffffff',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: scrapingField ? 'not-allowed' : 'pointer',
-                      fontSize: '13px',
-                      fontWeight: 500,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}
-                  >
-                    {scrapingField ? (
-                      <>
-                        <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span>
-                        Scraping...
-                      </>
-                    ) : (
-                      <>🔄 Refresh Field</>
-                    )}
-                  </button>
-                  {scrapeStatus && (
-                    <span style={{
-                      fontSize: '12px',
-                      color: scrapeStatus.success ? '#10b981' : '#ef4444'
-                    }}>
-                      {scrapeStatus.success
-                        ? `✓ Found ${scrapeStatus.count} players`
-                        : `✗ ${scrapeStatus.error}`
-                      }
-                    </span>
-                  )}
-                  <span style={{ fontSize: '11px', color: '#64748b' }}>
-                    Data source: {players.some(p => p._scraped) ? 'PGA Tour (scraped)' : 'LiveGolf API'}
+              {/* Admin Controls & Status */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                {/* Tournament Status Badge */}
+                {tournamentStarted && (
+                  <span style={{
+                    padding: '4px 10px',
+                    background: '#065f46',
+                    color: '#10b981',
+                    borderRadius: '12px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    marginBottom: '4px'
+                  }}>
+                    🏌️ Live
                   </span>
-                </div>
-              )}
+                )}
 
-              {/* Tournament Status Badge */}
-              {tournamentStarted && (
-                <span style={{
-                  padding: '6px 12px',
-                  background: '#065f46',
-                  color: '#10b981',
-                  borderRadius: '20px',
-                  fontSize: '12px',
-                  fontWeight: 600
-                }}>
-                  🏌️ Tournament In Progress
+                {/* Manual Scrape Button - always visible for admin */}
+                <button
+                  onClick={triggerFieldScrape}
+                  disabled={scrapingField}
+                  style={{
+                    padding: '8px 16px',
+                    background: scrapingField ? '#334155' : '#3b82f6',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: scrapingField ? 'not-allowed' : 'pointer',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {scrapingField ? (
+                    <>
+                      <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span>
+                      Scraping...
+                    </>
+                  ) : (
+                    <>🔄 Refresh Field</>
+                  )}
+                </button>
+                {scrapeStatus && (
+                  <span style={{
+                    fontSize: '12px',
+                    color: scrapeStatus.success ? '#10b981' : '#ef4444'
+                  }}>
+                    {scrapeStatus.success
+                      ? `✓ Found ${scrapeStatus.count} players`
+                      : `✗ ${scrapeStatus.error}`
+                    }
+                  </span>
+                )}
+                <span style={{ fontSize: '11px', color: '#64748b' }}>
+                  {players.length} players • {players.some(p => p._scraped) ? 'Scraped' : 'LiveGolf API'}
                 </span>
-              )}
+              </div>
             </div>
           </div>
         </div>
