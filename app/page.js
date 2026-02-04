@@ -107,33 +107,48 @@ export default function Home() {
     }
   };
 
-  const fetchPlayers = async () => {
+const fetchPlayers = async () => {
+    if (!currentEvent?.id) {
+      console.log('No current event selected');
+      return;
+    }
+
     try {
-      const url = `https://use.livegolfapi.com/v1/events/${currentEvent.id}/leaderboard?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
-      console.log('Fetching players from leaderboard:', url);
-
-      const response = await fetch(url);
-      const data = await response.json();
-
-      console.log('Leaderboard API response:', data);
-
-      // Extract player data from leaderboard entries
-      // Each entry has: player.id, player.name, player.country
-      if (Array.isArray(data) && data.length > 0) {
-        const playerList = data.map(entry => ({
-          id: entry.player?.id,
-          name: entry.player?.name,
-          country: entry.player?.country || ''
-        })).filter(p => p.id && p.name);
-
-        console.log(`Successfully loaded ${playerList.length} players`);
-        setPlayers(playerList);
+      console.log(`Fetching players for: ${currentEvent.name} (ID: ${currentEvent.id})`);
+      
+      // LiveGolf API uses the leaderboard endpoint which includes all players in the field
+      const leaderboardUrl = `https://use.livegolfapi.com/v1/events/${currentEvent.id}/leaderboard?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
+      console.log('Fetching from leaderboard endpoint:', leaderboardUrl);
+      
+      const response = await fetch(leaderboardUrl);
+      
+      if (!response.ok) {
+        console.error(`Leaderboard endpoint failed with status: ${response.status}`);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const leaderboardData = await response.json();
+      console.log('Leaderboard API response:', leaderboardData);
+      
+      if (Array.isArray(leaderboardData) && leaderboardData.length > 0) {
+        // Extract player data from leaderboard
+        const playersFromLeaderboard = leaderboardData.map(entry => ({
+          id: entry.player?.id || entry.playerId || entry.id,
+          name: entry.player?.name || entry.playerName || entry.name,
+          country: entry.player?.country || entry.country || 'Unknown',
+          position: entry.position || '-',
+          score: entry.score || '-',
+          thru: entry.thru || entry.through || '-'
+        }));
+        
+        setPlayers(playersFromLeaderboard);
+        console.log(`✅ Successfully loaded ${playersFromLeaderboard.length} players from leaderboard`);
       } else {
-        console.error('No leaderboard data returned:', data);
+        console.error('❌ Leaderboard returned empty or invalid data');
         setPlayers([]);
       }
     } catch (error) {
-      console.error('Error fetching players:', error);
+      console.error('❌ Error fetching players:', error);
       setPlayers([]);
     }
   };
@@ -1058,3 +1073,5 @@ function AuthForm({ supabase }) {
     </div>
   );
 }
+
+
