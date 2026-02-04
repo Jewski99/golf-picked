@@ -91,75 +91,63 @@ export default function Home() {
       return;
     }
 
-    setConfirmDialog({
-      title: 'Load Manual Field',
-      message: `Are you sure you want to load these players for ${currentEvent?.name}? This will add them to the available players list.`,
-      onConfirm: async () => {
-        setConfirmDialog(null);
-        setAdminLoading(true);
+    if (!currentEvent?.id) {
+      showAdminMessage('error', 'No event selected');
+      return;
+    }
 
-        // Create timeout for 15 seconds
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => {
-          controller.abort();
-          console.error('[Admin] Request timed out after 15 seconds');
-        }, 15000);
+    // Skip confirmation for now to simplify debugging
+    setAdminLoading(true);
+    showAdminMessage('', ''); // Clear any previous message
 
-        try {
-          console.log('[Admin] Getting auth token...');
-          const token = await getAuthToken();
+    try {
+      console.log('[Admin] Step 1: Getting auth token...');
+      const token = await getAuthToken();
 
-          if (!token) {
-            throw new Error('No auth token - please sign in again');
-          }
-          console.log('[Admin] Token received, length:', token.length);
+      if (!token) {
+        console.error('[Admin] No token received');
+        showAdminMessage('error', 'No auth token - please sign in again');
+        setAdminLoading(false);
+        return;
+      }
+      console.log('[Admin] Step 2: Token received, length:', token.length);
 
-          const players = manualFieldText.split('\n').filter(line => line.trim());
-          console.log('[Admin] Sending', players.length, 'players to API...');
+      const players = manualFieldText.split('\n').filter(line => line.trim());
+      console.log('[Admin] Step 3: Sending', players.length, 'players to API...');
 
-          const response = await fetch('/api/admin/load-field', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              eventId: currentEvent.id,
-              eventName: currentEvent.name,
-              players: players,
-              clearExisting: false
-            }),
-            signal: controller.signal
-          });
+      // Simple fetch with no abort controller for debugging
+      const response = await fetch('/api/admin/load-field', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          eventId: currentEvent.id,
+          eventName: currentEvent.name,
+          players: players
+        })
+      });
 
-          clearTimeout(timeoutId);
-          console.log('[Admin] Response received:', response.status);
+      console.log('[Admin] Step 4: Response status:', response.status);
 
-          const data = await response.json();
-          console.log('[Admin] Response data:', data);
+      const data = await response.json();
+      console.log('[Admin] Step 5: Response data:', data);
 
-          if (response.ok) {
-            showAdminMessage('success', data.message);
-            setManualFieldText('');
-            // Refresh players from manual_fields table
-            fetchPlayers();
-          } else {
-            showAdminMessage('error', data.error || 'Failed to load field');
-          }
-        } catch (error) {
-          clearTimeout(timeoutId);
-          if (error.name === 'AbortError') {
-            showAdminMessage('error', 'Request timed out after 15 seconds. Check browser console for details.');
-          } else {
-            console.error('[Admin] Error:', error);
-            showAdminMessage('error', error.message || 'An unexpected error occurred');
-          }
-        } finally {
-          setAdminLoading(false);
-        }
-      },
-      onCancel: () => setConfirmDialog(null)
-    });
+      if (response.ok) {
+        showAdminMessage('success', data.message || 'Players loaded successfully');
+        setManualFieldText('');
+        fetchPlayers();
+      } else {
+        showAdminMessage('error', data.error || `Failed with status ${response.status}`);
+      }
+    } catch (error) {
+      console.error('[Admin] CAUGHT ERROR:', error);
+      showAdminMessage('error', `Error: ${error.message}`);
+    } finally {
+      console.log('[Admin] Step 6: Setting loading to false');
+      setAdminLoading(false);
+    }
   };
 
   // Admin: Create manual draft pick
