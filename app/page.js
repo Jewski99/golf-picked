@@ -343,10 +343,6 @@ export default function Home() {
     }
   };
 
-  // ============================================================================
-  // MANUAL PLAYERS ONLY - No LiveGolf API for Field/Draft tabs
-  // LiveGolf API is ONLY used for Leaderboard tab (fetchLeaderboard function)
-  // ============================================================================
   const fetchPlayers = async () => {
     if (!currentEvent?.id) {
       console.log('No current event selected');
@@ -354,32 +350,57 @@ export default function Home() {
     }
 
     try {
-      console.log(`Fetching manual players for: ${currentEvent.name} (ID: ${currentEvent.id})`);
+      console.log(`Fetching players for: ${currentEvent.name} (ID: ${currentEvent.id})`);
 
-      // Query manual_fields table ONLY - no API fallback
-      const { data: manualPlayers, error } = await supabase
-        .from('manual_fields')
+      // First, try to get players from Supabase scraped_fields table
+      // This is the pre-scraped field data available before tournaments start
+      const { data: scrapedPlayers, error: supabaseError } = await supabase
+        .from('scraped_fields')
         .select('*')
         .eq('event_id', currentEvent.id);
 
-      if (error) {
-        console.error('Error fetching manual players:', error.message);
+      if (!supabaseError && scrapedPlayers && scrapedPlayers.length > 0) {
+        console.log(`Found ${scrapedPlayers.length} players in Supabase scraped_fields`);
+        const playersFromSupabase = scrapedPlayers.map(p => ({
+          id: p.player_pga_id || p.id,
+          name: p.player_name,
+          country: p.player_country || 'Unknown',
+          position: '-',
+          score: '-',
+          thru: '-'
+        }));
+        setPlayers(playersFromSupabase);
+        console.log(`✅ Successfully loaded ${playersFromSupabase.length} players from Supabase`);
+        return;
+      }
+
+      console.log('No scraped field data found, trying leaderboard API...');
+
+      // Fallback: Try leaderboard endpoint (only works during live tournaments)
+      const leaderboardUrl = `https://use.livegolfapi.com/v1/events/${currentEvent.id}/leaderboard?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
+      const response = await fetch(leaderboardUrl);
+
+      if (!response.ok) {
+        console.log(`Leaderboard endpoint returned ${response.status} - tournament may not have started`);
         setPlayers([]);
         return;
       }
 
-      if (manualPlayers && manualPlayers.length > 0) {
-        // Transform to expected format
-        const formattedPlayers = manualPlayers.map(p => ({
-          id: p.player_id,
-          name: p.player_name,
-          country: p.player_country || 'Unknown'
+      const leaderboardData = await response.json();
+
+      if (Array.isArray(leaderboardData) && leaderboardData.length > 0) {
+        const playersFromLeaderboard = leaderboardData.map(entry => ({
+          id: entry.player?.id || entry.playerId || entry.id,
+          name: entry.player?.name || entry.playerName || entry.name,
+          country: entry.player?.country || entry.country || 'Unknown',
+          position: entry.position || '-',
+          score: entry.score || '-',
+          thru: entry.thru || entry.through || '-'
         }));
 
-        setPlayers(formattedPlayers);
-        console.log(`✅ Loaded ${formattedPlayers.length} players from manual entry`);
+        setPlayers(playersFromLeaderboard);
+        console.log(`✅ Successfully loaded ${playersFromLeaderboard.length} players from leaderboard`);
       } else {
-        console.log('⚠️ No players found - admin needs to add field via Admin Panel');
         setPlayers([]);
       }
     } catch (error) {
