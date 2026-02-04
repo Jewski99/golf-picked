@@ -98,9 +98,24 @@ export default function Home() {
         setConfirmDialog(null);
         setAdminLoading(true);
 
+        // Create timeout for 15 seconds
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          controller.abort();
+          console.error('[Admin] Request timed out after 15 seconds');
+        }, 15000);
+
         try {
+          console.log('[Admin] Getting auth token...');
           const token = await getAuthToken();
+
+          if (!token) {
+            throw new Error('No auth token - please sign in again');
+          }
+          console.log('[Admin] Token received, length:', token.length);
+
           const players = manualFieldText.split('\n').filter(line => line.trim());
+          console.log('[Admin] Sending', players.length, 'players to API...');
 
           const response = await fetch('/api/admin/load-field', {
             method: 'POST',
@@ -113,10 +128,15 @@ export default function Home() {
               eventName: currentEvent.name,
               players: players,
               clearExisting: false
-            })
+            }),
+            signal: controller.signal
           });
 
+          clearTimeout(timeoutId);
+          console.log('[Admin] Response received:', response.status);
+
           const data = await response.json();
+          console.log('[Admin] Response data:', data);
 
           if (response.ok) {
             showAdminMessage('success', data.message);
@@ -127,7 +147,13 @@ export default function Home() {
             showAdminMessage('error', data.error || 'Failed to load field');
           }
         } catch (error) {
-          showAdminMessage('error', error.message);
+          clearTimeout(timeoutId);
+          if (error.name === 'AbortError') {
+            showAdminMessage('error', 'Request timed out after 15 seconds. Check browser console for details.');
+          } else {
+            console.error('[Admin] Error:', error);
+            showAdminMessage('error', error.message || 'An unexpected error occurred');
+          }
         } finally {
           setAdminLoading(false);
         }
@@ -1132,8 +1158,34 @@ export default function Home() {
 
             {/* Loading Indicator */}
             {adminLoading && (
-              <div style={{ textAlign: 'center', padding: '20px', color: '#10b981' }}>
-                Processing...
+              <div style={{
+                textAlign: 'center',
+                padding: '20px',
+                background: '#1e293b',
+                border: '1px solid #334155',
+                borderRadius: '8px',
+                marginBottom: '16px'
+              }}>
+                <div style={{ color: '#10b981', marginBottom: '8px', fontSize: '16px' }}>
+                  ⏳ Processing...
+                </div>
+                <p style={{ color: '#94a3b8', fontSize: '12px', margin: '0 0 12px 0' }}>
+                  Check browser console (F12) for detailed progress
+                </p>
+                <button
+                  onClick={() => setAdminLoading(false)}
+                  style={{
+                    padding: '8px 16px',
+                    background: '#7f1d1d',
+                    color: '#ffffff',
+                    border: '1px solid #dc2626',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '12px'
+                  }}
+                >
+                  Cancel / Reset
+                </button>
               </div>
             )}
 

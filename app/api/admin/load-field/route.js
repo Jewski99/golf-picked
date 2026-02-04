@@ -18,39 +18,49 @@ function getSupabaseClient() {
 }
 
 export async function POST(request) {
+  console.log('[load-field] POST request received');
+
   try {
     // Get the authorization header
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.log('[load-field] No auth token provided');
       return Response.json({ error: 'No authorization token provided' }, { status: 401 });
     }
 
     const token = authHeader.split(' ')[1];
+    console.log('[load-field] Token received, length:', token?.length);
 
     // Create Supabase client with service role
     let supabase;
     try {
       supabase = getSupabaseClient();
+      console.log('[load-field] Supabase client created');
     } catch (configError) {
-      console.error('Supabase config error:', configError.message);
+      console.error('[load-field] Supabase config error:', configError.message);
       return Response.json({ error: 'Server configuration error. Please contact administrator.' }, { status: 500 });
     }
 
     // Verify the JWT and get user
+    console.log('[load-field] Verifying user token...');
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
     if (authError || !user) {
-      console.error('Auth error:', authError?.message);
+      console.error('[load-field] Auth error:', authError?.message);
       return Response.json({ error: 'Invalid or expired token. Please sign in again.' }, { status: 401 });
     }
+    console.log('[load-field] User verified:', user.email);
 
     // Verify admin status
     if (user.email !== ADMIN_EMAIL) {
+      console.log('[load-field] User is not admin:', user.email);
       return Response.json({ error: 'Unauthorized: Admin access required' }, { status: 403 });
     }
 
     // Parse request body
+    console.log('[load-field] Parsing request body...');
     const { eventId, eventName, players, clearExisting } = await request.json();
+    console.log('[load-field] Event:', eventName, 'Players count:', players?.length);
 
     // Validate required fields
     if (!eventId || !eventName || !players || !Array.isArray(players)) {
@@ -98,6 +108,7 @@ export async function POST(request) {
     }
 
     // Insert players (upsert to handle duplicates)
+    console.log('[load-field] Inserting', parsedPlayers.length, 'players into manual_fields...');
     const { data: insertedPlayers, error: insertError } = await supabase
       .from('manual_fields')
       .upsert(parsedPlayers, {
@@ -106,8 +117,10 @@ export async function POST(request) {
       })
       .select();
 
+    console.log('[load-field] Insert complete. Error:', insertError ? insertError.message : 'none');
+
     if (insertError) {
-      console.error('Insert error:', insertError);
+      console.error('[load-field] Insert error:', insertError);
       // If table doesn't exist, provide helpful message
       if (insertError.message?.includes('relation') && insertError.message?.includes('does not exist')) {
         return Response.json({
@@ -136,6 +149,7 @@ export async function POST(request) {
       console.error('Failed to log admin action (non-fatal):', logError);
     }
 
+    console.log('[load-field] SUCCESS - Loaded', parsedPlayers.length, 'players');
     return Response.json({
       success: true,
       count: insertedPlayers?.length || parsedPlayers.length,
@@ -144,7 +158,7 @@ export async function POST(request) {
     });
 
   } catch (error) {
-    console.error('Admin load field error:', error);
+    console.error('[load-field] FATAL ERROR:', error);
     return Response.json({ error: `Server error: ${error.message}` }, { status: 500 });
   }
 }
