@@ -121,8 +121,8 @@ export default function Home() {
           if (response.ok) {
             showAdminMessage('success', data.message);
             setManualFieldText('');
-            // Refresh players to include manual entries
-            fetchPlayersWithManual();
+            // Refresh players from manual_fields table
+            fetchPlayers();
           } else {
             showAdminMessage('error', data.error || 'Failed to load field');
           }
@@ -281,43 +281,17 @@ export default function Home() {
     }
   };
 
-  // Fetch players including manual entries
-  const fetchPlayersWithManual = async () => {
-    await fetchPlayers();
-
-    // Also fetch manual entries and merge
-    try {
-      const token = await getAuthToken();
-      const response = await fetch(`/api/admin/load-field?eventId=${currentEvent?.id}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.players && data.players.length > 0) {
-          setPlayers(prev => {
-            const existingIds = new Set(prev.map(p => p.name.toLowerCase()));
-            const newPlayers = data.players.filter(p => !existingIds.has(p.name.toLowerCase()));
-            return [...prev, ...newPlayers];
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching manual field:', error);
-    }
-  };
-
   useEffect(() => {
     if (currentEvent) {
       fetchPlayers();
       fetchDraftPicks();
       fetchDraftOrder();
       fetchLeaderboard();
-      
+
       const interval = setInterval(() => {
         fetchLeaderboard();
       }, 120000);
-      
+
       return () => clearInterval(interval);
     }
   }, [currentEvent]);
@@ -430,7 +404,7 @@ export default function Home() {
         setPlayers([]);
       }
     } catch (error) {
-      console.error('❌ Error fetching players:', error);
+      console.error('❌ Error fetching manual players:', error);
       setPlayers([]);
     }
   };
@@ -715,35 +689,71 @@ export default function Home() {
               </p>
             </div>
             <div style={{ padding: '16px' }}>
-              <input
-                type="text"
-                placeholder="Search field..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  marginBottom: '16px',
+              {players.length === 0 ? (
+                /* Empty State - No players added yet */
+                <div style={{
+                  textAlign: 'center',
+                  padding: '60px 20px',
                   background: '#1e293b',
-                  border: '1px solid #334155',
-                  borderRadius: '8px',
-                  color: '#ffffff',
-                  fontSize: '14px'
-                }}
-              />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '12px', maxHeight: '700px', overflowY: 'auto' }}>
-                {players
-                  .filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
-                  .sort((a, b) => a.name.localeCompare(b.name))
-                  .map((player, idx) => {
-                    const isDrafted = draftPicks.some(pick => pick.player_id === player.id);
-                    return (
-                      <button
-                        key={player.id}
-                        onClick={() => fetchPlayerStats(player)}
-                        style={{
-                          padding: '12px',
-                          background: isDrafted ? '#1e293b50' : '#1e293b',
+                  borderRadius: '12px',
+                  border: '2px dashed #334155'
+                }}>
+                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>⛳</div>
+                  <h4 style={{ color: '#ffffff', fontSize: '18px', fontWeight: 'bold', marginBottom: '8px' }}>
+                    No Players Added Yet
+                  </h4>
+                  <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '16px' }}>
+                    The commissioner needs to add players for this tournament via the Admin Panel.
+                  </p>
+                  {isAdmin && (
+                    <button
+                      onClick={() => setActiveTab('admin')}
+                      style={{
+                        padding: '10px 20px',
+                        background: '#10b981',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontWeight: 500
+                      }}
+                    >
+                      Go to Admin Panel
+                    </button>
+                  )}
+                </div>
+              ) : (
+                /* Players List */
+                <>
+                  <input
+                    type="text"
+                    placeholder="Search field..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      marginBottom: '16px',
+                      background: '#1e293b',
+                      border: '1px solid #334155',
+                      borderRadius: '8px',
+                      color: '#ffffff',
+                      fontSize: '14px'
+                    }}
+                  />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '12px', maxHeight: '700px', overflowY: 'auto' }}>
+                    {players
+                      .filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map((player, idx) => {
+                        const isDrafted = draftPicks.some(pick => pick.player_id === player.id);
+                        return (
+                          <button
+                            key={player.id}
+                            onClick={() => fetchPlayerStats(player)}
+                            style={{
+                              padding: '12px',
+                              background: isDrafted ? '#1e293b50' : '#1e293b',
                           border: `1px solid ${isDrafted ? '#64748b' : '#334155'}`,
                           borderRadius: '8px',
                           opacity: isDrafted ? 0.6 : 1,
@@ -775,7 +785,9 @@ export default function Home() {
                       </button>
                     );
                   })}
-              </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
