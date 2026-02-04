@@ -121,8 +121,8 @@ export default function Home() {
           if (response.ok) {
             showAdminMessage('success', data.message);
             setManualFieldText('');
-            // Refresh players to include manual entries
-            fetchPlayersWithManual();
+            // Refresh players from manual_fields table
+            fetchPlayers();
           } else {
             showAdminMessage('error', data.error || 'Failed to load field');
           }
@@ -281,43 +281,17 @@ export default function Home() {
     }
   };
 
-  // Fetch players including manual entries
-  const fetchPlayersWithManual = async () => {
-    await fetchPlayers();
-
-    // Also fetch manual entries and merge
-    try {
-      const token = await getAuthToken();
-      const response = await fetch(`/api/admin/load-field?eventId=${currentEvent?.id}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.players && data.players.length > 0) {
-          setPlayers(prev => {
-            const existingIds = new Set(prev.map(p => p.name.toLowerCase()));
-            const newPlayers = data.players.filter(p => !existingIds.has(p.name.toLowerCase()));
-            return [...prev, ...newPlayers];
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching manual field:', error);
-    }
-  };
-
   useEffect(() => {
     if (currentEvent) {
       fetchPlayers();
       fetchDraftPicks();
       fetchDraftOrder();
       fetchLeaderboard();
-      
+
       const interval = setInterval(() => {
         fetchLeaderboard();
       }, 120000);
-      
+
       return () => clearInterval(interval);
     }
   }, [currentEvent]);
@@ -369,77 +343,47 @@ export default function Home() {
     }
   };
 
-const fetchPlayers = async () => {
+  // ============================================================================
+  // MANUAL PLAYERS ONLY - No LiveGolf API for Field/Draft tabs
+  // LiveGolf API is ONLY used for Leaderboard tab (fetchLeaderboard function)
+  // ============================================================================
+  const fetchPlayers = async () => {
     if (!currentEvent?.id) {
       console.log('No current event selected');
       return;
     }
 
     try {
-      console.log(`Fetching players for: ${currentEvent.name} (ID: ${currentEvent.id})`);
+      console.log(`Fetching manual players for: ${currentEvent.name} (ID: ${currentEvent.id})`);
 
-      // PRIORITY 1: Check for manually added players in database first
-      console.log('Checking for manually added players...');
-      const { data: manualPlayers, error: manualError } = await supabase
+      // Query manual_fields table ONLY - no API fallback
+      const { data: manualPlayers, error } = await supabase
         .from('manual_fields')
         .select('*')
         .eq('event_id', currentEvent.id);
 
-      if (!manualError && manualPlayers && manualPlayers.length > 0) {
-        // Transform manual players to expected format
-        const formattedManualPlayers = manualPlayers.map(p => ({
+      if (error) {
+        console.error('Error fetching manual players:', error.message);
+        setPlayers([]);
+        return;
+      }
+
+      if (manualPlayers && manualPlayers.length > 0) {
+        // Transform to expected format
+        const formattedPlayers = manualPlayers.map(p => ({
           id: p.player_id,
           name: p.player_name,
-          country: p.player_country || 'Unknown',
-          position: '-',
-          score: '-',
-          thru: '-'
+          country: p.player_country || 'Unknown'
         }));
 
-        setPlayers(formattedManualPlayers);
-        console.log(`✅ Using ${formattedManualPlayers.length} manually added players from database`);
-        return; // Use manual players, don't fetch from API
-      }
-
-      if (manualError) {
-        console.log('Manual fields table not available or error:', manualError.message);
+        setPlayers(formattedPlayers);
+        console.log(`✅ Loaded ${formattedPlayers.length} players from manual entry`);
       } else {
-        console.log('No manual players found, falling back to LiveGolf API...');
-      }
-
-      // PRIORITY 2: Fallback to LiveGolf API
-      const leaderboardUrl = `https://use.livegolfapi.com/v1/events/${currentEvent.id}/leaderboard?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
-      console.log('Fetching from leaderboard endpoint:', leaderboardUrl);
-
-      const response = await fetch(leaderboardUrl);
-
-      if (!response.ok) {
-        console.error(`Leaderboard endpoint failed with status: ${response.status}`);
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const leaderboardData = await response.json();
-      console.log('Leaderboard API response:', leaderboardData);
-
-      if (Array.isArray(leaderboardData) && leaderboardData.length > 0) {
-        // Extract player data from leaderboard
-        const playersFromLeaderboard = leaderboardData.map(entry => ({
-          id: entry.player?.id || entry.playerId || entry.id,
-          name: entry.player?.name || entry.playerName || entry.name,
-          country: entry.player?.country || entry.country || 'Unknown',
-          position: entry.position || '-',
-          score: entry.score || '-',
-          thru: entry.thru || entry.through || '-'
-        }));
-
-        setPlayers(playersFromLeaderboard);
-        console.log(`✅ Successfully loaded ${playersFromLeaderboard.length} players from leaderboard`);
-      } else {
-        console.error('❌ Leaderboard returned empty or invalid data');
+        console.log('⚠️ No players found - admin needs to add field via Admin Panel');
         setPlayers([]);
       }
     } catch (error) {
-      console.error('❌ Error fetching players:', error);
+      console.error('❌ Error fetching manual players:', error);
       setPlayers([]);
     }
   };
@@ -724,35 +668,71 @@ const fetchPlayers = async () => {
               </p>
             </div>
             <div style={{ padding: '16px' }}>
-              <input
-                type="text"
-                placeholder="Search field..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  marginBottom: '16px',
+              {players.length === 0 ? (
+                /* Empty State - No players added yet */
+                <div style={{
+                  textAlign: 'center',
+                  padding: '60px 20px',
                   background: '#1e293b',
-                  border: '1px solid #334155',
-                  borderRadius: '8px',
-                  color: '#ffffff',
-                  fontSize: '14px'
-                }}
-              />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '12px', maxHeight: '700px', overflowY: 'auto' }}>
-                {players
-                  .filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
-                  .sort((a, b) => a.name.localeCompare(b.name))
-                  .map((player, idx) => {
-                    const isDrafted = draftPicks.some(pick => pick.player_id === player.id);
-                    return (
-                      <button
-                        key={player.id}
-                        onClick={() => fetchPlayerStats(player)}
-                        style={{
-                          padding: '12px',
-                          background: isDrafted ? '#1e293b50' : '#1e293b',
+                  borderRadius: '12px',
+                  border: '2px dashed #334155'
+                }}>
+                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>⛳</div>
+                  <h4 style={{ color: '#ffffff', fontSize: '18px', fontWeight: 'bold', marginBottom: '8px' }}>
+                    No Players Added Yet
+                  </h4>
+                  <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '16px' }}>
+                    The commissioner needs to add players for this tournament via the Admin Panel.
+                  </p>
+                  {isAdmin && (
+                    <button
+                      onClick={() => setActiveTab('admin')}
+                      style={{
+                        padding: '10px 20px',
+                        background: '#10b981',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontWeight: 500
+                      }}
+                    >
+                      Go to Admin Panel
+                    </button>
+                  )}
+                </div>
+              ) : (
+                /* Players List */
+                <>
+                  <input
+                    type="text"
+                    placeholder="Search field..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      marginBottom: '16px',
+                      background: '#1e293b',
+                      border: '1px solid #334155',
+                      borderRadius: '8px',
+                      color: '#ffffff',
+                      fontSize: '14px'
+                    }}
+                  />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '12px', maxHeight: '700px', overflowY: 'auto' }}>
+                    {players
+                      .filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map((player, idx) => {
+                        const isDrafted = draftPicks.some(pick => pick.player_id === player.id);
+                        return (
+                          <button
+                            key={player.id}
+                            onClick={() => fetchPlayerStats(player)}
+                            style={{
+                              padding: '12px',
+                              background: isDrafted ? '#1e293b50' : '#1e293b',
                           border: `1px solid ${isDrafted ? '#64748b' : '#334155'}`,
                           borderRadius: '8px',
                           opacity: isDrafted ? 0.6 : 1,
@@ -784,7 +764,9 @@ const fetchPlayers = async () => {
                       </button>
                     );
                   })}
-              </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
