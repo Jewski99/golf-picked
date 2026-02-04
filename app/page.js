@@ -165,13 +165,9 @@ export default function Home() {
       return;
     }
 
-    // Skip confirmation for faster admin workflow
     setAdminLoading(true);
-    console.log('[Admin Draft] Starting draft pick...');
-    const startTime = Date.now();
 
     try {
-      console.log('[Admin Draft] Getting auth token...');
       const token = await getAuthToken();
 
       if (!token) {
@@ -180,7 +176,6 @@ export default function Home() {
         return;
       }
 
-      console.log('[Admin Draft] Sending to API...');
       const response = await fetch('/api/admin/draft-pick', {
         method: 'POST',
         headers: {
@@ -197,18 +192,26 @@ export default function Home() {
         })
       });
 
-      console.log('[Admin Draft] Response received:', response.status);
       const data = await response.json();
 
       if (response.ok) {
-        console.log('[Admin Draft] Success! Refreshing picks...');
-        showAdminMessage('success', data.message || `Drafted ${selectedPlayerObj.name} for ${selectedUser.username}`);
+        // OPTIMISTIC UI UPDATE - add pick to state immediately without database query
+        const newPick = data.pick || {
+          id: Date.now(),
+          event_id: currentEvent.id,
+          user_id: selectedUserId,
+          username: selectedUser.username,
+          player_id: selectedPlayerObj.id,
+          player_name: selectedPlayerObj.name,
+          pick_number: draftPicks.length + 1
+        };
+
+        // Update state immediately
+        setDraftPicks(prev => [...prev, newPick]);
+
+        showAdminMessage('success', `Drafted ${selectedPlayerObj.name} for ${selectedUser.username}`);
         setSelectedUserId('');
         setSelectedPlayerId('');
-
-        // Immediately refresh draft picks
-        await fetchDraftPicks();
-        console.log('[Admin Draft] Complete in', Date.now() - startTime, 'ms');
       } else {
         showAdminMessage('error', data.error || 'Failed to create draft pick');
       }
