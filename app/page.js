@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
+const ADMIN_EMAIL = 'dangajewski99@gmail.com';
+
 export default function Home() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('draft');
@@ -18,6 +20,20 @@ export default function Home() {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [playerStats, setPlayerStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(false);
+
+  // Admin state
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminMessage, setAdminMessage] = useState({ type: '', text: '' });
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState(null);
+
+  // Admin form state
+  const [manualFieldText, setManualFieldText] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [selectedPlayerId, setSelectedPlayerId] = useState('');
+  const [prizeAmount, setPrizeAmount] = useState('');
+  const [prizeReason, setPrizeReason] = useState('');
+  const [adjustmentHistory, setAdjustmentHistory] = useState([]);
 
   // Create Supabase client with placeholder values during build/SSR
   // The actual client will be created on the client-side with real env vars
@@ -42,8 +58,254 @@ export default function Home() {
     if (user) {
       fetchEvents();
       fetchStandings();
+      // Check admin status
+      checkAdminStatus();
     }
   }, [user]);
+
+  // Check if user is admin
+  const checkAdminStatus = () => {
+    if (user?.email === ADMIN_EMAIL) {
+      setIsAdmin(true);
+    } else {
+      setIsAdmin(false);
+    }
+  };
+
+  // Get auth token for API calls
+  const getAuthToken = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token;
+  };
+
+  // Show admin message with auto-clear
+  const showAdminMessage = (type, text) => {
+    setAdminMessage({ type, text });
+    setTimeout(() => setAdminMessage({ type: '', text: '' }), 5000);
+  };
+
+  // Admin: Load manual player field
+  const handleLoadManualField = async () => {
+    if (!manualFieldText.trim()) {
+      showAdminMessage('error', 'Please enter player names');
+      return;
+    }
+
+    setConfirmDialog({
+      title: 'Load Manual Field',
+      message: `Are you sure you want to load these players for ${currentEvent?.name}? This will add them to the available players list.`,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        setAdminLoading(true);
+
+        try {
+          const token = await getAuthToken();
+          const players = manualFieldText.split('\n').filter(line => line.trim());
+
+          const response = await fetch('/api/admin/load-field', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              eventId: currentEvent.id,
+              eventName: currentEvent.name,
+              players: players,
+              clearExisting: false
+            })
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            showAdminMessage('success', data.message);
+            setManualFieldText('');
+            // Refresh players to include manual entries
+            fetchPlayersWithManual();
+          } else {
+            showAdminMessage('error', data.error || 'Failed to load field');
+          }
+        } catch (error) {
+          showAdminMessage('error', error.message);
+        } finally {
+          setAdminLoading(false);
+        }
+      },
+      onCancel: () => setConfirmDialog(null)
+    });
+  };
+
+  // Admin: Create manual draft pick
+  const handleManualDraftPick = async () => {
+    if (!selectedUserId || !selectedPlayerId) {
+      showAdminMessage('error', 'Please select a user and player');
+      return;
+    }
+
+    const selectedUser = seasonStandings.find(s => s.user_id === selectedUserId);
+    const selectedPlayerObj = players.find(p => p.id === selectedPlayerId);
+
+    if (!selectedUser || !selectedPlayerObj) {
+      showAdminMessage('error', 'Invalid user or player selection');
+      return;
+    }
+
+    setConfirmDialog({
+      title: 'Confirm Draft Pick',
+      message: `Are you sure you want to draft ${selectedPlayerObj.name} for ${selectedUser.username}?`,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        setAdminLoading(true);
+
+        try {
+          const token = await getAuthToken();
+
+          const response = await fetch('/api/admin/draft-pick', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              userId: selectedUserId,
+              username: selectedUser.username,
+              playerId: selectedPlayerObj.id,
+              playerName: selectedPlayerObj.name,
+              eventId: currentEvent.id,
+              eventName: currentEvent.name
+            })
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            showAdminMessage('success', data.message);
+            setSelectedUserId('');
+            setSelectedPlayerId('');
+            fetchDraftPicks();
+          } else {
+            showAdminMessage('error', data.error || 'Failed to create draft pick');
+          }
+        } catch (error) {
+          showAdminMessage('error', error.message);
+        } finally {
+          setAdminLoading(false);
+        }
+      },
+      onCancel: () => setConfirmDialog(null)
+    });
+  };
+
+  // Admin: Adjust prize money
+  const handlePrizeAdjustment = async () => {
+    if (!selectedUserId || !prizeAmount) {
+      showAdminMessage('error', 'Please select a user and enter an amount');
+      return;
+    }
+
+    const amount = parseFloat(prizeAmount);
+    if (isNaN(amount)) {
+      showAdminMessage('error', 'Please enter a valid number');
+      return;
+    }
+
+    const selectedUser = seasonStandings.find(s => s.user_id === selectedUserId);
+    if (!selectedUser) {
+      showAdminMessage('error', 'Invalid user selection');
+      return;
+    }
+
+    setConfirmDialog({
+      title: 'Confirm Prize Adjustment',
+      message: `Are you sure you want to ${amount >= 0 ? 'add' : 'subtract'} $${Math.abs(amount).toLocaleString()} ${amount >= 0 ? 'to' : 'from'} ${selectedUser.username}'s prize money?`,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        setAdminLoading(true);
+
+        try {
+          const token = await getAuthToken();
+
+          const response = await fetch('/api/admin/adjust-prize', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              userId: selectedUserId,
+              username: selectedUser.username,
+              amount: amount,
+              reason: prizeReason || 'Manual adjustment by commissioner',
+              eventId: currentEvent?.id,
+              eventName: currentEvent?.name
+            })
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            showAdminMessage('success', data.message);
+            setSelectedUserId('');
+            setPrizeAmount('');
+            setPrizeReason('');
+            fetchStandings();
+            fetchAdjustmentHistory();
+          } else {
+            showAdminMessage('error', data.error || 'Failed to adjust prize money');
+          }
+        } catch (error) {
+          showAdminMessage('error', error.message);
+        } finally {
+          setAdminLoading(false);
+        }
+      },
+      onCancel: () => setConfirmDialog(null)
+    });
+  };
+
+  // Fetch adjustment history
+  const fetchAdjustmentHistory = async () => {
+    try {
+      const token = await getAuthToken();
+      const response = await fetch('/api/admin/adjust-prize', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAdjustmentHistory(data.adjustments || []);
+      }
+    } catch (error) {
+      console.error('Error fetching adjustment history:', error);
+    }
+  };
+
+  // Fetch players including manual entries
+  const fetchPlayersWithManual = async () => {
+    await fetchPlayers();
+
+    // Also fetch manual entries and merge
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`/api/admin/load-field?eventId=${currentEvent?.id}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.players && data.players.length > 0) {
+          setPlayers(prev => {
+            const existingIds = new Set(prev.map(p => p.name.toLowerCase()));
+            const newPlayers = data.players.filter(p => !existingIds.has(p.name.toLowerCase()));
+            return [...prev, ...newPlayers];
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching manual field:', error);
+    }
+  };
 
   useEffect(() => {
     if (currentEvent) {
@@ -395,14 +657,19 @@ const fetchPlayers = async () => {
       {/* Tabs */}
       <div style={{ maxWidth: '1200px', margin: '16px auto', padding: '0 16px' }}>
         <div style={{ display: 'flex', gap: '8px', background: '#0f172a', padding: '4px', borderRadius: '8px', border: '1px solid #334155' }}>
-          {['draft', 'field', 'leaderboard', 'standings'].map(tab => (
+          {['draft', 'field', 'leaderboard', 'standings', ...(isAdmin ? ['admin'] : [])].map(tab => (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => {
+                setActiveTab(tab);
+                if (tab === 'admin') {
+                  fetchAdjustmentHistory();
+                }
+              }}
               style={{
                 flex: 1,
                 padding: '10px 12px',
-                background: activeTab === tab ? '#10b981' : 'transparent',
+                background: activeTab === tab ? (tab === 'admin' ? '#dc2626' : '#10b981') : 'transparent',
                 color: '#ffffff',
                 border: 'none',
                 borderRadius: '6px',
@@ -411,7 +678,7 @@ const fetchPlayers = async () => {
                 fontSize: '14px'
               }}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === 'admin' ? 'Admin' : tab.charAt(0).toUpperCase() + tab.slice(1)}
             </button>
           ))}
         </div>
@@ -802,6 +1069,346 @@ const fetchPlayers = async () => {
             ))}
           </div>
         )}
+
+        {/* Admin Panel - Only visible to admin */}
+        {activeTab === 'admin' && isAdmin && (
+          <div>
+            {/* Admin Header */}
+            <div style={{ background: '#7f1d1d', border: '1px solid #dc2626', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: 'bold', color: '#ffffff' }}>
+                Commissioner Admin Panel
+              </h3>
+              <p style={{ margin: 0, fontSize: '14px', color: '#fca5a5' }}>
+                Use these tools to manually override league data. All actions are logged for auditing.
+              </p>
+            </div>
+
+            {/* Admin Message */}
+            {adminMessage.text && (
+              <div style={{
+                padding: '12px 16px',
+                marginBottom: '16px',
+                background: adminMessage.type === 'success' ? '#065f46' : '#7f1d1d',
+                border: `1px solid ${adminMessage.type === 'success' ? '#10b981' : '#dc2626'}`,
+                borderRadius: '8px',
+                color: '#ffffff',
+                fontSize: '14px'
+              }}>
+                {adminMessage.type === 'success' ? '✓ ' : '✗ '}{adminMessage.text}
+              </div>
+            )}
+
+            {/* Loading Indicator */}
+            {adminLoading && (
+              <div style={{ textAlign: 'center', padding: '20px', color: '#10b981' }}>
+                Processing...
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '16px' }}>
+              {/* Section 1: Manual Player Field Entry */}
+              <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold', color: '#10b981' }}>
+                  Manual Player Field Entry
+                </h4>
+                <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#94a3b8' }}>
+                  Paste player names (one per line). Format: &quot;Player Name, Country&quot;
+                </p>
+                <textarea
+                  value={manualFieldText}
+                  onChange={(e) => setManualFieldText(e.target.value)}
+                  placeholder="Scottie Scheffler, USA
+Rory McIlroy, NIR
+Jon Rahm, ESP"
+                  style={{
+                    width: '100%',
+                    minHeight: '150px',
+                    padding: '12px',
+                    background: '#1e293b',
+                    border: '1px solid #334155',
+                    borderRadius: '8px',
+                    color: '#ffffff',
+                    fontSize: '14px',
+                    fontFamily: 'monospace',
+                    resize: 'vertical'
+                  }}
+                />
+                <div style={{ marginTop: '12px', display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={handleLoadManualField}
+                    disabled={adminLoading || !currentEvent}
+                    style={{
+                      flex: 1,
+                      padding: '10px 16px',
+                      background: '#10b981',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: adminLoading ? 'not-allowed' : 'pointer',
+                      fontWeight: 500,
+                      opacity: adminLoading ? 0.5 : 1
+                    }}
+                  >
+                    Load Players for {currentEvent?.name || 'Current Tournament'}
+                  </button>
+                </div>
+                {manualFieldText && (
+                  <div style={{ marginTop: '8px', fontSize: '12px', color: '#94a3b8' }}>
+                    {manualFieldText.split('\n').filter(l => l.trim()).length} players to add
+                  </div>
+                )}
+              </div>
+
+              {/* Section 2: Manual Draft Pick Entry */}
+              <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold', color: '#10b981' }}>
+                  Manual Draft Pick Entry
+                </h4>
+                <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#94a3b8' }}>
+                  Create a draft pick on behalf of any user.
+                </p>
+
+                <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', color: '#94a3b8' }}>
+                  Select User
+                </label>
+                <select
+                  value={selectedUserId}
+                  onChange={(e) => setSelectedUserId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    marginBottom: '12px',
+                    background: '#1e293b',
+                    border: '1px solid #334155',
+                    borderRadius: '6px',
+                    color: '#ffffff',
+                    fontSize: '14px'
+                  }}
+                >
+                  <option value="">-- Select User --</option>
+                  {seasonStandings.map(standing => {
+                    const userPicks = draftPicks.filter(p => p.user_id === standing.user_id);
+                    return (
+                      <option key={standing.user_id} value={standing.user_id}>
+                        {standing.username} ({userPicks.length}/4 picks)
+                      </option>
+                    );
+                  })}
+                </select>
+
+                <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', color: '#94a3b8' }}>
+                  Select Player
+                </label>
+                <select
+                  value={selectedPlayerId}
+                  onChange={(e) => setSelectedPlayerId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    marginBottom: '12px',
+                    background: '#1e293b',
+                    border: '1px solid #334155',
+                    borderRadius: '6px',
+                    color: '#ffffff',
+                    fontSize: '14px'
+                  }}
+                >
+                  <option value="">-- Select Player --</option>
+                  {players
+                    .filter(p => !draftPicks.some(pick => pick.player_id === p.id))
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map(player => (
+                      <option key={player.id} value={player.id}>
+                        {player.name} ({player.country})
+                      </option>
+                    ))}
+                </select>
+
+                <button
+                  onClick={handleManualDraftPick}
+                  disabled={adminLoading || !selectedUserId || !selectedPlayerId}
+                  style={{
+                    width: '100%',
+                    padding: '10px 16px',
+                    background: '#10b981',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: (adminLoading || !selectedUserId || !selectedPlayerId) ? 'not-allowed' : 'pointer',
+                    fontWeight: 500,
+                    opacity: (adminLoading || !selectedUserId || !selectedPlayerId) ? 0.5 : 1
+                  }}
+                >
+                  Add Draft Pick
+                </button>
+              </div>
+
+              {/* Section 3: Manual Prize Money Override */}
+              <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold', color: '#10b981' }}>
+                  Manual Prize Money Override
+                </h4>
+                <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#94a3b8' }}>
+                  Add or subtract prize money from a user&apos;s total. Use negative values to subtract.
+                </p>
+
+                <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', color: '#94a3b8' }}>
+                  Select User
+                </label>
+                <select
+                  value={selectedUserId}
+                  onChange={(e) => setSelectedUserId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    marginBottom: '12px',
+                    background: '#1e293b',
+                    border: '1px solid #334155',
+                    borderRadius: '6px',
+                    color: '#ffffff',
+                    fontSize: '14px'
+                  }}
+                >
+                  <option value="">-- Select User --</option>
+                  {seasonStandings.map(standing => (
+                    <option key={standing.user_id} value={standing.user_id}>
+                      {standing.username} (${standing.total_winnings?.toLocaleString() || '0'})
+                    </option>
+                  ))}
+                </select>
+
+                <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', color: '#94a3b8' }}>
+                  Amount (use negative to subtract)
+                </label>
+                <input
+                  type="number"
+                  value={prizeAmount}
+                  onChange={(e) => setPrizeAmount(e.target.value)}
+                  placeholder="e.g., 50000 or -25000"
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    marginBottom: '12px',
+                    background: '#1e293b',
+                    border: '1px solid #334155',
+                    borderRadius: '6px',
+                    color: '#ffffff',
+                    fontSize: '14px'
+                  }}
+                />
+
+                <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', color: '#94a3b8' }}>
+                  Reason (optional)
+                </label>
+                <input
+                  type="text"
+                  value={prizeReason}
+                  onChange={(e) => setPrizeReason(e.target.value)}
+                  placeholder="e.g., Correction for missed payout"
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    marginBottom: '12px',
+                    background: '#1e293b',
+                    border: '1px solid #334155',
+                    borderRadius: '6px',
+                    color: '#ffffff',
+                    fontSize: '14px'
+                  }}
+                />
+
+                <button
+                  onClick={handlePrizeAdjustment}
+                  disabled={adminLoading || !selectedUserId || !prizeAmount}
+                  style={{
+                    width: '100%',
+                    padding: '10px 16px',
+                    background: '#f59e0b',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: (adminLoading || !selectedUserId || !prizeAmount) ? 'not-allowed' : 'pointer',
+                    fontWeight: 500,
+                    opacity: (adminLoading || !selectedUserId || !prizeAmount) ? 0.5 : 1
+                  }}
+                >
+                  Adjust Prize Money
+                </button>
+              </div>
+
+              {/* Section 4: Current Standings Reference */}
+              <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold', color: '#10b981' }}>
+                  Current Standings (Reference)
+                </h4>
+                <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
+                  {seasonStandings.map((standing, idx) => (
+                    <div
+                      key={standing.user_id}
+                      style={{
+                        padding: '10px 12px',
+                        marginBottom: '8px',
+                        background: '#1e293b',
+                        border: '1px solid #334155',
+                        borderRadius: '6px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontWeight: 'bold', color: '#94a3b8', width: '20px' }}>{idx + 1}.</span>
+                        <span style={{ color: '#ffffff' }}>{standing.username}</span>
+                      </div>
+                      <span style={{ color: '#10b981', fontWeight: 500 }}>
+                        ${standing.total_winnings?.toLocaleString() || '0'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Section 5: Adjustment History */}
+              <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px', gridColumn: 'span 2' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold', color: '#10b981' }}>
+                  Recent Adjustments Log
+                </h4>
+                {adjustmentHistory.length === 0 ? (
+                  <p style={{ color: '#64748b', fontSize: '14px', textAlign: 'center', padding: '20px' }}>
+                    No adjustments recorded yet
+                  </p>
+                ) : (
+                  <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid #334155' }}>
+                          <th style={{ padding: '8px', textAlign: 'left', color: '#94a3b8' }}>Date</th>
+                          <th style={{ padding: '8px', textAlign: 'left', color: '#94a3b8' }}>User</th>
+                          <th style={{ padding: '8px', textAlign: 'right', color: '#94a3b8' }}>Amount</th>
+                          <th style={{ padding: '8px', textAlign: 'left', color: '#94a3b8' }}>Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adjustmentHistory.map((adj, idx) => (
+                          <tr key={adj.id || idx} style={{ borderBottom: '1px solid #334155' }}>
+                            <td style={{ padding: '8px', color: '#ffffff' }}>
+                              {new Date(adj.created_at).toLocaleDateString()}
+                            </td>
+                            <td style={{ padding: '8px', color: '#ffffff' }}>{adj.username}</td>
+                            <td style={{ padding: '8px', textAlign: 'right', color: adj.amount >= 0 ? '#10b981' : '#ef4444', fontWeight: 500 }}>
+                              {adj.amount >= 0 ? '+' : ''}${adj.amount?.toLocaleString()}
+                            </td>
+                            <td style={{ padding: '8px', color: '#94a3b8' }}>{adj.reason || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Player Stats Modal */}
@@ -949,6 +1556,77 @@ const fetchPlayers = async () => {
                   </div>
                 </>
               ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog Modal */}
+      {confirmDialog && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100,
+            padding: '20px'
+          }}
+        >
+          <div
+            style={{
+              background: '#0f172a',
+              border: '2px solid #f59e0b',
+              borderRadius: '16px',
+              maxWidth: '400px',
+              width: '100%',
+              padding: '24px'
+            }}
+          >
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '20px', fontWeight: 'bold', color: '#f59e0b' }}>
+              {confirmDialog.title}
+            </h3>
+            <p style={{ margin: '0 0 24px 0', fontSize: '15px', color: '#ffffff', lineHeight: '1.5' }}>
+              {confirmDialog.message}
+            </p>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={confirmDialog.onCancel}
+                style={{
+                  flex: 1,
+                  padding: '12px 16px',
+                  background: '#334155',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                  fontSize: '14px'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDialog.onConfirm}
+                style={{
+                  flex: 1,
+                  padding: '12px 16px',
+                  background: '#10b981',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                  fontSize: '14px'
+                }}
+              >
+                Confirm
+              </button>
             </div>
           </div>
         </div>
