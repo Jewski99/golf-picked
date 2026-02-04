@@ -165,50 +165,59 @@ export default function Home() {
       return;
     }
 
-    setConfirmDialog({
-      title: 'Confirm Draft Pick',
-      message: `Are you sure you want to draft ${selectedPlayerObj.name} for ${selectedUser.username}?`,
-      onConfirm: async () => {
-        setConfirmDialog(null);
-        setAdminLoading(true);
+    // Skip confirmation for faster admin workflow
+    setAdminLoading(true);
+    console.log('[Admin Draft] Starting draft pick...');
+    const startTime = Date.now();
 
-        try {
-          const token = await getAuthToken();
+    try {
+      console.log('[Admin Draft] Getting auth token...');
+      const token = await getAuthToken();
 
-          const response = await fetch('/api/admin/draft-pick', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              userId: selectedUserId,
-              username: selectedUser.username,
-              playerId: selectedPlayerObj.id,
-              playerName: selectedPlayerObj.name,
-              eventId: currentEvent.id,
-              eventName: currentEvent.name
-            })
-          });
+      if (!token) {
+        showAdminMessage('error', 'No auth token - please sign in again');
+        setAdminLoading(false);
+        return;
+      }
 
-          const data = await response.json();
+      console.log('[Admin Draft] Sending to API...');
+      const response = await fetch('/api/admin/draft-pick', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          userId: selectedUserId,
+          username: selectedUser.username,
+          playerId: selectedPlayerObj.id,
+          playerName: selectedPlayerObj.name,
+          eventId: currentEvent.id,
+          eventName: currentEvent.name
+        })
+      });
 
-          if (response.ok) {
-            showAdminMessage('success', data.message);
-            setSelectedUserId('');
-            setSelectedPlayerId('');
-            fetchDraftPicks();
-          } else {
-            showAdminMessage('error', data.error || 'Failed to create draft pick');
-          }
-        } catch (error) {
-          showAdminMessage('error', error.message);
-        } finally {
-          setAdminLoading(false);
-        }
-      },
-      onCancel: () => setConfirmDialog(null)
-    });
+      console.log('[Admin Draft] Response received:', response.status);
+      const data = await response.json();
+
+      if (response.ok) {
+        console.log('[Admin Draft] Success! Refreshing picks...');
+        showAdminMessage('success', data.message || `Drafted ${selectedPlayerObj.name} for ${selectedUser.username}`);
+        setSelectedUserId('');
+        setSelectedPlayerId('');
+
+        // Immediately refresh draft picks
+        await fetchDraftPicks();
+        console.log('[Admin Draft] Complete in', Date.now() - startTime, 'ms');
+      } else {
+        showAdminMessage('error', data.error || 'Failed to create draft pick');
+      }
+    } catch (error) {
+      console.error('[Admin Draft] Error:', error);
+      showAdminMessage('error', error.message);
+    } finally {
+      setAdminLoading(false);
+    }
   };
 
   // Admin: Adjust prize money
@@ -460,23 +469,35 @@ export default function Home() {
   };
 
   const fetchDraftPicks = async () => {
-    const { data } = await supabase
+    console.log('[fetchDraftPicks] Starting query...');
+    const startTime = Date.now();
+
+    const { data, error } = await supabase
       .from('draft_picks')
       .select('*')
       .eq('event_id', currentEvent.id)
       .order('pick_number');
-    
+
+    console.log('[fetchDraftPicks] Query complete in', Date.now() - startTime, 'ms, got', data?.length || 0, 'picks');
+
+    if (error) {
+      console.error('[fetchDraftPicks] Error:', error.message);
+      return;
+    }
+
     const previousPickCount = draftPicks.length;
     setDraftPicks(data || []);
-    
-    // If picks increased, check if we need to notify next person
+
+    // Fire-and-forget notification (don't await - UI already updated)
     if (data && data.length > previousPickCount && data.length < draftOrder.length * 4) {
       const nextPickIndex = data.length % draftOrder.length;
       const nextDrafter = draftOrder[nextPickIndex];
-      
-      if (nextDrafter && nextDrafter.user_id !== user.id) {
-        // Send notification to next person
-        sendNotification(nextDrafter, data.length + 1);
+
+      if (nextDrafter && nextDrafter.user_id !== user?.id) {
+        // Send notification without blocking
+        sendNotification(nextDrafter, data.length + 1).catch(err =>
+          console.error('[fetchDraftPicks] Notification error:', err)
+        );
       }
     }
   };

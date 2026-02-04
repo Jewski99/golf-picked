@@ -110,57 +110,62 @@ export async function POST(request) {
       return Response.json({ error: `Database error: ${insertError.message}` }, { status: 500 });
     }
 
-    // Try to log the admin action (don't fail if table doesn't exist)
-    try {
-      await supabase.from('admin_action_log').insert({
-        action_type: 'draft_pick',
-        action_description: `Admin manually added draft pick: ${playerName} for ${username}`,
-        target_user_id: userId,
-        target_username: username,
-        action_data: {
-          eventId,
-          eventName,
-          playerId,
-          playerName,
-          pickNumber: nextPickNumber
-        },
-        admin_user_id: user.id,
-        admin_email: user.email
-      });
-    } catch (logError) {
-      console.error('Failed to log admin action (non-fatal):', logError);
-    }
+    console.log('[draft-pick] Pick inserted successfully, returning response immediately');
 
-    // Try to send SMS notification
-    try {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('phone_number')
-        .eq('id', userId)
-        .single();
-
-      if (profile?.phone_number) {
-        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-        await fetch(`${siteUrl}/api/notify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            phoneNumber: profile.phone_number,
-            username: username,
-            pickNumber: (userPicks?.length || 0) + 1,
-            eventName: eventName,
-          }),
-        });
-      }
-    } catch (notifyError) {
-      console.error('Notification error (non-fatal):', notifyError);
-    }
-
-    return Response.json({
+    // Return success IMMEDIATELY - don't wait for logging or notifications
+    const response = Response.json({
       success: true,
       pick: newPick,
       message: `Successfully drafted ${playerName} for ${username}`
     });
+
+    // Fire-and-forget: Log admin action in background (don't await)
+    supabase.from('admin_action_log').insert({
+      action_type: 'draft_pick',
+      action_description: `Admin manually added draft pick: ${playerName} for ${username}`,
+      target_user_id: userId,
+      target_username: username,
+      action_data: {
+        eventId,
+        eventName,
+        playerId,
+        playerName,
+        pickNumber: nextPickNumber
+      },
+      admin_user_id: user.id,
+      admin_email: user.email
+    }).then(() => console.log('[draft-pick] Admin action logged'))
+      .catch(err => console.error('[draft-pick] Failed to log admin action:', err));
+
+    // Fire-and-forget: Send SMS notification in background (don't await)
+    (async () => {
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('phone_number')
+          .eq('id', userId)
+          .single();
+
+        if (profile?.phone_number) {
+          const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+          await fetch(`${siteUrl}/api/notify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              phoneNumber: profile.phone_number,
+              username: username,
+              pickNumber: (userPicks?.length || 0) + 1,
+              eventName: eventName,
+            }),
+          });
+          console.log('[draft-pick] SMS notification sent');
+        }
+      } catch (notifyError) {
+        console.error('[draft-pick] Notification error:', notifyError);
+      }
+    })();
+
+    return response;
 
   } catch (error) {
     console.error('Admin draft pick error:', error);
