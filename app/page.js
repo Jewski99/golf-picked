@@ -369,7 +369,7 @@ export default function Home() {
     }
   };
 
-const fetchPlayers = async () => {
+  const fetchPlayers = async () => {
     if (!currentEvent?.id) {
       console.log('No current event selected');
       return;
