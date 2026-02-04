@@ -366,8 +366,32 @@ export default function Home() {
     try {
       console.log(`Fetching players for: ${currentEvent.name} (ID: ${currentEvent.id})`);
 
-      // First, try to get players from Supabase scraped_fields table
-      // This is the pre-scraped field data available before tournaments start
+      // First, try to get players from manual_fields table (admin-added players)
+      const { data: manualPlayers, error: manualError } = await supabase
+        .from('manual_fields')
+        .select('*')
+        .eq('event_id', currentEvent.id);
+
+      if (!manualError && manualPlayers && manualPlayers.length > 0) {
+        console.log(`Found ${manualPlayers.length} players in manual_fields`);
+        const playersFromManual = manualPlayers.map(p => ({
+          id: p.player_id,
+          name: p.player_name,
+          country: p.player_country || 'Unknown',
+          position: '-',
+          score: '-',
+          thru: '-'
+        }));
+        setPlayers(playersFromManual);
+        console.log(`✅ Successfully loaded ${playersFromManual.length} players from manual_fields`);
+        return;
+      }
+
+      if (manualError) {
+        console.log('Error fetching manual_fields:', manualError.message);
+      }
+
+      // Fallback: Try scraped_fields table
       const { data: scrapedPlayers, error: supabaseError } = await supabase
         .from('scraped_fields')
         .select('*')
