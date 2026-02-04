@@ -94,27 +94,25 @@ export async function POST(request) {
       return Response.json({ error: 'No valid players found in input. Format: "Player Name, Country" per line' }, { status: 400 });
     }
 
-    // Optionally clear existing manual entries for this event
-    if (clearExisting) {
-      const { error: deleteError } = await supabase
-        .from('manual_fields')
-        .delete()
-        .eq('event_id', eventId);
+    // Delete existing entries for this event first (always replace to avoid constraint issues)
+    console.log('[load-field] Deleting existing players for event:', eventId);
+    const { error: deleteError } = await supabase
+      .from('manual_fields')
+      .delete()
+      .eq('event_id', eventId);
 
-      if (deleteError) {
-        console.error('Delete error:', deleteError);
-        // Continue anyway - table might not exist yet
-      }
+    if (deleteError) {
+      console.error('[load-field] Delete error (non-fatal):', deleteError.message);
+      // Continue anyway - table might not exist yet or no entries to delete
+    } else {
+      console.log('[load-field] Existing players deleted successfully');
     }
 
-    // Insert players (upsert to handle duplicates)
+    // Insert all players (simple insert, no upsert needed since we deleted first)
     console.log('[load-field] Inserting', parsedPlayers.length, 'players into manual_fields...');
     const { data: insertedPlayers, error: insertError } = await supabase
       .from('manual_fields')
-      .upsert(parsedPlayers, {
-        onConflict: 'event_id,player_name',
-        ignoreDuplicates: false
-      })
+      .insert(parsedPlayers)
       .select();
 
     console.log('[load-field] Insert complete. Error:', insertError ? insertError.message : 'none');
