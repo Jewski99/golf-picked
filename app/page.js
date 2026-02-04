@@ -377,23 +377,44 @@ const fetchPlayers = async () => {
 
     try {
       console.log(`Fetching players for: ${currentEvent.name} (ID: ${currentEvent.id})`);
-      
-      // LiveGolf API uses the leaderboard endpoint which includes all players in the field
-      const leaderboardUrl = `https://use.livegolfapi.com/v1/events/${currentEvent.id}/leaderboard?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
-      console.log('Fetching from leaderboard endpoint:', leaderboardUrl);
-      
-      const response = await fetch(leaderboardUrl);
-      
-      if (!response.ok) {
-        console.error(`Leaderboard endpoint failed with status: ${response.status}`);
-        throw new Error(`HTTP error! status: ${response.status}`);
+
+      // First, try to get players from Supabase scraped_fields table
+      // This is the pre-scraped field data available before tournaments start
+      const { data: scrapedPlayers, error: supabaseError } = await supabase
+        .from('scraped_fields')
+        .select('*')
+        .eq('event_id', currentEvent.id);
+
+      if (!supabaseError && scrapedPlayers && scrapedPlayers.length > 0) {
+        console.log(`Found ${scrapedPlayers.length} players in Supabase scraped_fields`);
+        const playersFromSupabase = scrapedPlayers.map(p => ({
+          id: p.player_pga_id || p.id,
+          name: p.player_name,
+          country: p.player_country || 'Unknown',
+          position: '-',
+          score: '-',
+          thru: '-'
+        }));
+        setPlayers(playersFromSupabase);
+        console.log(`✅ Successfully loaded ${playersFromSupabase.length} players from Supabase`);
+        return;
       }
-      
+
+      console.log('No scraped field data found, trying leaderboard API...');
+
+      // Fallback: Try leaderboard endpoint (only works during live tournaments)
+      const leaderboardUrl = `https://use.livegolfapi.com/v1/events/${currentEvent.id}/leaderboard?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
+      const response = await fetch(leaderboardUrl);
+
+      if (!response.ok) {
+        console.log(`Leaderboard endpoint returned ${response.status} - tournament may not have started`);
+        setPlayers([]);
+        return;
+      }
+
       const leaderboardData = await response.json();
-      console.log('Leaderboard API response:', leaderboardData);
-      
+
       if (Array.isArray(leaderboardData) && leaderboardData.length > 0) {
-        // Extract player data from leaderboard
         const playersFromLeaderboard = leaderboardData.map(entry => ({
           id: entry.player?.id || entry.playerId || entry.id,
           name: entry.player?.name || entry.playerName || entry.name,
@@ -402,11 +423,10 @@ const fetchPlayers = async () => {
           score: entry.score || '-',
           thru: entry.thru || entry.through || '-'
         }));
-        
+
         setPlayers(playersFromLeaderboard);
         console.log(`✅ Successfully loaded ${playersFromLeaderboard.length} players from leaderboard`);
       } else {
-        console.error('❌ Leaderboard returned empty or invalid data');
         setPlayers([]);
       }
     } catch (error) {
