@@ -887,9 +887,7 @@ export default function Home() {
                       .filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
                       .sort((a, b) => a.name.localeCompare(b.name))
                       .map((player, idx) => {
-                        const isDrafted = draftPicks.some(pick => 
-                          playersMatch(pick.player_name, playerName)
-                        );
+                        
                         return (
                           <button
                             key={player.id}
