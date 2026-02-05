@@ -61,6 +61,7 @@ export default function Home() {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [playerStats, setPlayerStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(false);
+  const [showAllPlayers, setShowAllPlayers] = useState(true);
 
   // Admin state
   const [isAdmin, setIsAdmin] = useState(false);
@@ -693,7 +694,7 @@ export default function Home() {
     p.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Match leaderboard players to draft picks using fuzzy name matching
+  // Enrich leaderboard with draft info for highlighting
   const enrichedLeaderboard = leaderboard.map(entry => {
     const leaderboardPlayerName = entry.player?.name || entry.name || '';
 
@@ -711,29 +712,10 @@ export default function Home() {
     };
   });
 
-  // Filter to only show drafted players
-  const filteredLeaderboard = enrichedLeaderboard.filter(entry => entry.isDrafted);
-
-  // Log any drafted players that couldn't be found in leaderboard
-  if (draftPicks.length > 0 && leaderboard.length > 0) {
-    const matchedPlayerNames = new Set(
-      filteredLeaderboard.map(entry =>
-        normalizePlayerName(entry.player?.name || entry.name || '')
-      )
-    );
-
-    draftPicks.forEach(pick => {
-      const pickNameNormalized = normalizePlayerName(pick.player_name);
-      const foundInLeaderboard = [...matchedPlayerNames].some(
-        leaderboardName => playersMatch(pick.player_name, leaderboardName) ||
-          leaderboard.some(entry => playersMatch(pick.player_name, entry.player?.name || entry.name || ''))
-      );
-
-      if (!foundInLeaderboard && pick.player_name) {
-        console.warn(`⚠️ Could not find "${pick.player_name}" in leaderboard`);
-      }
-    });
-  }
+  // Show all players or just drafted ones based on toggle
+  const filteredLeaderboard = showAllPlayers
+    ? enrichedLeaderboard
+    : enrichedLeaderboard.filter(entry => entry.isDrafted);
 
   const myPicks = draftPicks.filter(p => p.user_id === user.id);
   const currentPickNum = draftPicks.length + 1;
@@ -1161,10 +1143,31 @@ export default function Home() {
         {activeTab === 'leaderboard' && (
           <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', overflow: 'hidden' }}>
             <div style={{ padding: '16px', borderBottom: '1px solid #334155' }}>
-              <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#ffffff' }}>Live Leaderboard</h3>
-              <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: '#94a3b8' }}>
-                Showing {filteredLeaderboard.length} drafted players
-              </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#ffffff' }}>Live Leaderboard</h3>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: '#94a3b8' }}>
+                    {showAllPlayers
+                      ? `Showing all ${filteredLeaderboard.length} players`
+                      : `Showing ${filteredLeaderboard.length} drafted players`}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowAllPlayers(!showAllPlayers)}
+                  style={{
+                    padding: '8px 16px',
+                    background: showAllPlayers ? '#334155' : '#10b981',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: 500
+                  }}
+                >
+                  {showAllPlayers ? 'Show Drafted Only' : 'Show All Players'}
+                </button>
+              </div>
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1172,22 +1175,37 @@ export default function Home() {
                   <tr>
                     <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: '#ffffff', textTransform: 'uppercase' }}>Pos</th>
                     <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: '#ffffff', textTransform: 'uppercase' }}>Player</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: '#ffffff', textTransform: 'uppercase' }}>Drafted By</th>
                     <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: 500, color: '#ffffff', textTransform: 'uppercase' }}>Score</th>
+                    <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: 500, color: '#ffffff', textTransform: 'uppercase' }}>Thru</th>
                     <th style={{ padding: '12px', textAlign: 'right', fontSize: '12px', fontWeight: 500, color: '#ffffff', textTransform: 'uppercase' }}>Earnings</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredLeaderboard.map((entry, idx) => (
-                    <tr key={idx} style={{ borderTop: '1px solid #334155' }}>
+                    <tr
+                      key={idx}
+                      style={{
+                        borderTop: '1px solid #334155',
+                        background: entry.isDrafted ? '#065f4620' : 'transparent',
+                        borderLeft: entry.isDrafted ? '3px solid #10b981' : '3px solid transparent'
+                      }}
+                    >
                       <td style={{ padding: '12px', color: '#ffffff', fontWeight: 500 }}>{entry.position}</td>
-                      <td style={{ padding: '12px', color: '#ffffff', fontWeight: 500 }}>{entry.player?.name}</td>
-                      <td style={{ padding: '12px', color: entry.draftedByUserId === user?.id ? '#10b981' : '#94a3b8', fontWeight: 500 }}>
-                        {entry.draftedBy || '-'}
-                        {entry.pickNumber && <span style={{ color: '#64748b', fontSize: '12px', marginLeft: '4px' }}>(#{entry.pickNumber})</span>}
+                      <td style={{ padding: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ color: '#ffffff', fontWeight: 500 }}>{entry.player?.name}</span>
+                          {entry.isDrafted && (
+                            <span style={{ color: '#10b981', fontSize: '14px' }}>
+                              ⭐ <span style={{ fontSize: '12px', color: entry.draftedByUserId === user?.id ? '#10b981' : '#94a3b8' }}>({entry.draftedBy})</span>
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td style={{ padding: '12px', textAlign: 'center', fontWeight: 'bold', color: entry.score?.total < 0 ? '#f87171' : '#ffffff' }}>
-                        {entry.score?.total > 0 ? '+' : ''}{entry.score?.total || 'E'}
+                        {entry.score?.total > 0 ? '+' : ''}{entry.score?.total ?? 'E'}
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'center', color: '#94a3b8' }}>
+                        {entry.thru || entry.score?.thru || '-'}
                       </td>
                       <td style={{ padding: '12px', textAlign: 'right', color: '#10b981', fontWeight: 500 }}>
                         ${entry.earnings?.toLocaleString() || '0'}
