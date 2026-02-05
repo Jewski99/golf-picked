@@ -26,6 +26,7 @@ export default function Home() {
   const [adminMessage, setAdminMessage] = useState({ type: '', text: '' });
   const [adminLoading, setAdminLoading] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(null);
+  const [cachedAuthToken, setCachedAuthToken] = useState(null);
 
   // Admin form state
   const [manualFieldText, setManualFieldText] = useState('');
@@ -63,10 +64,15 @@ export default function Home() {
     }
   }, [user]);
 
-  // Check if user is admin
-  const checkAdminStatus = () => {
+  // Check if user is admin and cache auth token
+  const checkAdminStatus = async () => {
     if (user?.email === ADMIN_EMAIL) {
       setIsAdmin(true);
+      // Pre-cache auth token for fast admin operations
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        setCachedAuthToken(session.access_token);
+      }
     } else {
       setIsAdmin(false);
     }
@@ -165,22 +171,20 @@ export default function Home() {
       return;
     }
 
+    // Use cached token - no async call needed
+    if (!cachedAuthToken) {
+      showAdminMessage('error', 'Auth token not ready - please refresh page');
+      return;
+    }
+
     setAdminLoading(true);
 
     try {
-      const token = await getAuthToken();
-
-      if (!token) {
-        showAdminMessage('error', 'No auth token - please sign in again');
-        setAdminLoading(false);
-        return;
-      }
-
       const response = await fetch('/api/admin/draft-pick', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${cachedAuthToken}`
         },
         body: JSON.stringify({
           userId: selectedUserId,
@@ -195,7 +199,7 @@ export default function Home() {
       const data = await response.json();
 
       if (response.ok) {
-        // OPTIMISTIC UI UPDATE - add pick to state immediately without database query
+        // OPTIMISTIC UI UPDATE - add pick to state immediately
         const newPick = data.pick || {
           id: Date.now(),
           event_id: currentEvent.id,
@@ -206,9 +210,7 @@ export default function Home() {
           pick_number: draftPicks.length + 1
         };
 
-        // Update state immediately
         setDraftPicks(prev => [...prev, newPick]);
-
         showAdminMessage('success', `Drafted ${selectedPlayerObj.name} for ${selectedUser.username}`);
         setSelectedUserId('');
         setSelectedPlayerId('');
