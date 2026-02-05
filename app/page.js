@@ -1198,7 +1198,7 @@ export default function Home() {
                 <tbody>
                   {filteredLeaderboard.map((entry, idx) => {
                     // Handle various API data structures
-                    const playerName = entry.player?.name || entry.name || entry.player_name || 'Unknown';
+                    const playerName = entry.player || 'Unknown';
                     const position = entry.position || entry.pos || idx + 1;
                     const score = entry.total ?? entry.score?.total ?? entry.toPar ?? null;
                     const thru = entry.thru || entry.score?.thru || entry.holesPlayed || '-';
