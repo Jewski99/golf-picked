@@ -5,6 +5,47 @@ import { createClient } from '@supabase/supabase-js';
 
 const ADMIN_EMAIL = 'dangajewski99@gmail.com';
 
+// Helper functions for fuzzy player name matching
+const normalizePlayerName = (name) => {
+  if (!name) return '';
+  // Remove periods, extra spaces, convert to lowercase
+  return name.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+};
+
+const playersMatch = (name1, name2) => {
+  if (!name1 || !name2) return false;
+
+  const n1 = normalizePlayerName(name1);
+  const n2 = normalizePlayerName(name2);
+
+  // Exact match after normalization
+  if (n1 === n2) return true;
+
+  // Check if last name matches (e.g., "Scheffler" in both)
+  const parts1 = n1.split(' ');
+  const parts2 = n2.split(' ');
+  const lastName1 = parts1[parts1.length - 1];
+  const lastName2 = parts2[parts2.length - 1];
+
+  // Last names must match and be longer than 3 chars to avoid false positives
+  if (lastName1 === lastName2 && lastName1.length > 3) {
+    // Additional check: first initial should match if available
+    const firstInitial1 = parts1[0]?.[0];
+    const firstInitial2 = parts2[0]?.[0];
+    if (firstInitial1 && firstInitial2 && firstInitial1 === firstInitial2) {
+      return true;
+    }
+    // If one name is abbreviated (e.g., "S Scheffler" vs "Scottie Scheffler")
+    if (parts1.length === 2 && parts2.length === 2) {
+      if (parts1[0].length === 1 || parts2[0].length === 1) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+};
+
 export default function Home() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('draft');
@@ -652,8 +693,47 @@ export default function Home() {
     p.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const draftedPlayerIds = new Set(draftPicks.map(p => p.player_id));
-  const filteredLeaderboard = leaderboard.filter(entry => draftedPlayerIds.has(entry.player?.id));
+  // Match leaderboard players to draft picks using fuzzy name matching
+  const enrichedLeaderboard = leaderboard.map(entry => {
+    const leaderboardPlayerName = entry.player?.name || entry.name || '';
+
+    // Find matching draft pick by name (fuzzy matching)
+    const matchingPick = draftPicks.find(pick =>
+      playersMatch(pick.player_name, leaderboardPlayerName)
+    );
+
+    return {
+      ...entry,
+      draftedBy: matchingPick ? matchingPick.username : null,
+      draftedByUserId: matchingPick ? matchingPick.user_id : null,
+      isDrafted: !!matchingPick,
+      pickNumber: matchingPick?.pick_number
+    };
+  });
+
+  // Filter to only show drafted players
+  const filteredLeaderboard = enrichedLeaderboard.filter(entry => entry.isDrafted);
+
+  // Log any drafted players that couldn't be found in leaderboard
+  if (draftPicks.length > 0 && leaderboard.length > 0) {
+    const matchedPlayerNames = new Set(
+      filteredLeaderboard.map(entry =>
+        normalizePlayerName(entry.player?.name || entry.name || '')
+      )
+    );
+
+    draftPicks.forEach(pick => {
+      const pickNameNormalized = normalizePlayerName(pick.player_name);
+      const foundInLeaderboard = [...matchedPlayerNames].some(
+        leaderboardName => playersMatch(pick.player_name, leaderboardName) ||
+          leaderboard.some(entry => playersMatch(pick.player_name, entry.player?.name || entry.name || ''))
+      );
+
+      if (!foundInLeaderboard && pick.player_name) {
+        console.warn(`⚠️ Could not find "${pick.player_name}" in leaderboard`);
+      }
+    });
+  }
 
   const myPicks = draftPicks.filter(p => p.user_id === user.id);
   const currentPickNum = draftPicks.length + 1;
@@ -1092,6 +1172,7 @@ export default function Home() {
                   <tr>
                     <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: '#ffffff', textTransform: 'uppercase' }}>Pos</th>
                     <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: '#ffffff', textTransform: 'uppercase' }}>Player</th>
+                    <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 500, color: '#ffffff', textTransform: 'uppercase' }}>Drafted By</th>
                     <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: 500, color: '#ffffff', textTransform: 'uppercase' }}>Score</th>
                     <th style={{ padding: '12px', textAlign: 'right', fontSize: '12px', fontWeight: 500, color: '#ffffff', textTransform: 'uppercase' }}>Earnings</th>
                   </tr>
@@ -1101,6 +1182,10 @@ export default function Home() {
                     <tr key={idx} style={{ borderTop: '1px solid #334155' }}>
                       <td style={{ padding: '12px', color: '#ffffff', fontWeight: 500 }}>{entry.position}</td>
                       <td style={{ padding: '12px', color: '#ffffff', fontWeight: 500 }}>{entry.player?.name}</td>
+                      <td style={{ padding: '12px', color: entry.draftedByUserId === user?.id ? '#10b981' : '#94a3b8', fontWeight: 500 }}>
+                        {entry.draftedBy || '-'}
+                        {entry.pickNumber && <span style={{ color: '#64748b', fontSize: '12px', marginLeft: '4px' }}>(#{entry.pickNumber})</span>}
+                      </td>
                       <td style={{ padding: '12px', textAlign: 'center', fontWeight: 'bold', color: entry.score?.total < 0 ? '#f87171' : '#ffffff' }}>
                         {entry.score?.total > 0 ? '+' : ''}{entry.score?.total || 'E'}
                       </td>
