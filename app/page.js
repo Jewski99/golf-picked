@@ -504,14 +504,28 @@ export default function Home() {
   };
 
   const fetchLeaderboard = async () => {
+    if (!currentEvent?.id) return;
+
     try {
-      const response = await fetch(
-        `https://use.livegolfapi.com/v1/events/${currentEvent.id}/leaderboard?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`
-      );
-      const data = await response.json();
-      setLeaderboard(data);
+      console.log('Fetching leaderboard from event endpoint...');
+
+      // Use the event endpoint - it contains leaderboard data
+      const url = `https://use.livegolfapi.com/v1/events/${currentEvent.id}?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
+
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const eventData = await response.json();
+      console.log('Event data received:', eventData);
+
+      // Extract players from the event data - check multiple possible locations
+      const players = eventData.players || eventData.leaderboard || eventData.field || [];
+
+      console.log(`✅ Loaded ${players.length} players from leaderboard`);
+      setLeaderboard(players);
+
     } catch (error) {
-      console.error('Error fetching leaderboard:', error);
+      console.error('❌ Error fetching leaderboard:', error);
     }
   };
 
@@ -696,7 +710,8 @@ export default function Home() {
 
   // Enrich leaderboard with draft info for highlighting
   const enrichedLeaderboard = leaderboard.map(entry => {
-    const leaderboardPlayerName = entry.player?.name || entry.name || '';
+    // Handle various API data structures for player name
+    const leaderboardPlayerName = entry.player?.name || entry.name || entry.player_name || '';
 
     // Find matching draft pick by name (fuzzy matching)
     const matchingPick = draftPicks.find(pick =>
@@ -1181,37 +1196,46 @@ export default function Home() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredLeaderboard.map((entry, idx) => (
-                    <tr
-                      key={idx}
-                      style={{
-                        borderTop: '1px solid #334155',
-                        background: entry.isDrafted ? '#065f4620' : 'transparent',
-                        borderLeft: entry.isDrafted ? '3px solid #10b981' : '3px solid transparent'
-                      }}
-                    >
-                      <td style={{ padding: '12px', color: '#ffffff', fontWeight: 500 }}>{entry.position}</td>
-                      <td style={{ padding: '12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ color: '#ffffff', fontWeight: 500 }}>{entry.player?.name}</span>
-                          {entry.isDrafted && (
-                            <span style={{ color: '#10b981', fontSize: '14px' }}>
-                              ⭐ <span style={{ fontSize: '12px', color: entry.draftedByUserId === user?.id ? '#10b981' : '#94a3b8' }}>({entry.draftedBy})</span>
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td style={{ padding: '12px', textAlign: 'center', fontWeight: 'bold', color: entry.score?.total < 0 ? '#f87171' : '#ffffff' }}>
-                        {entry.score?.total > 0 ? '+' : ''}{entry.score?.total ?? 'E'}
-                      </td>
-                      <td style={{ padding: '12px', textAlign: 'center', color: '#94a3b8' }}>
-                        {entry.thru || entry.score?.thru || '-'}
-                      </td>
-                      <td style={{ padding: '12px', textAlign: 'right', color: '#10b981', fontWeight: 500 }}>
-                        ${entry.earnings?.toLocaleString() || '0'}
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredLeaderboard.map((entry, idx) => {
+                    // Handle various API data structures
+                    const playerName = entry.player?.name || entry.name || entry.player_name || 'Unknown';
+                    const position = entry.position || entry.pos || idx + 1;
+                    const score = entry.total ?? entry.score?.total ?? entry.toPar ?? null;
+                    const thru = entry.thru || entry.score?.thru || entry.holesPlayed || '-';
+                    const earnings = entry.earnings || entry.money || entry.prize || 0;
+
+                    return (
+                      <tr
+                        key={idx}
+                        style={{
+                          borderTop: '1px solid #334155',
+                          background: entry.isDrafted ? '#065f4620' : 'transparent',
+                          borderLeft: entry.isDrafted ? '3px solid #10b981' : '3px solid transparent'
+                        }}
+                      >
+                        <td style={{ padding: '12px', color: '#ffffff', fontWeight: 500 }}>{position}</td>
+                        <td style={{ padding: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ color: '#ffffff', fontWeight: 500 }}>{playerName}</span>
+                            {entry.isDrafted && (
+                              <span style={{ color: '#10b981', fontSize: '14px' }}>
+                                ⭐ <span style={{ fontSize: '12px', color: entry.draftedByUserId === user?.id ? '#10b981' : '#94a3b8' }}>({entry.draftedBy})</span>
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px', textAlign: 'center', fontWeight: 'bold', color: score !== null && score < 0 ? '#f87171' : '#ffffff' }}>
+                          {score === null ? 'E' : score > 0 ? `+${score}` : score === 0 ? 'E' : score}
+                        </td>
+                        <td style={{ padding: '12px', textAlign: 'center', color: '#94a3b8' }}>
+                          {thru}
+                        </td>
+                        <td style={{ padding: '12px', textAlign: 'right', color: '#10b981', fontWeight: 500 }}>
+                          ${typeof earnings === 'number' ? earnings.toLocaleString() : '0'}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
