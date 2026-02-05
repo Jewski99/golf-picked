@@ -468,37 +468,13 @@ export default function Home() {
         return;
       }
 
-      console.log('No scraped field data found, trying leaderboard API...');
+      // No players found in database - show empty state
+      console.log('No players found in manual_fields or scraped_fields tables');
+      console.log('Admin needs to load players via the Admin Panel');
+      setPlayers([]);
 
-      // Fallback: Try leaderboard endpoint (only works during live tournaments)
-      const leaderboardUrl = `https://use.livegolfapi.com/v1/events/${currentEvent.id}/leaderboard?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
-      const response = await fetch(leaderboardUrl);
-
-      if (!response.ok) {
-        console.log(`Leaderboard endpoint returned ${response.status} - tournament may not have started`);
-        setPlayers([]);
-        return;
-      }
-
-      const leaderboardData = await response.json();
-
-      if (Array.isArray(leaderboardData) && leaderboardData.length > 0) {
-        const playersFromLeaderboard = leaderboardData.map(entry => ({
-          id: entry.player?.id || entry.playerId || entry.id,
-          name: entry.player?.name || entry.playerName || entry.name,
-          country: entry.player?.country || entry.country || 'Unknown',
-          position: entry.position || '-',
-          score: entry.score || '-',
-          thru: entry.thru || entry.through || '-'
-        }));
-
-        setPlayers(playersFromLeaderboard);
-        console.log(`✅ Successfully loaded ${playersFromLeaderboard.length} players from leaderboard`);
-      } else {
-        setPlayers([]);
-      }
     } catch (error) {
-      console.error('❌ Error fetching manual players:', error);
+      console.error('❌ Error fetching players:', error);
       setPlayers([]);
     }
   };
