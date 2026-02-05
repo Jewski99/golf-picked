@@ -887,7 +887,7 @@ export default function Home() {
                       .filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
                       .sort((a, b) => a.name.localeCompare(b.name))
                       .map((player, idx) => {
-                        
+                        const isDrafted = draftPicks.some(pick => pick.player_id === player.id);
                         return (
                           <button
                             key={player.id}
@@ -2000,5 +2000,4 @@ function AuthForm({ supabase }) {
     </div>
   );
 }
-
 
