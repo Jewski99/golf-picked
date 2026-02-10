@@ -649,25 +649,24 @@ export default function Home() {
     if (!currentEvent?.id) return;
 
     try {
-      console.log('Fetching leaderboard from event endpoint...');
-
-      // Use the event endpoint - it contains leaderboard data
       const url = `https://use.livegolfapi.com/v1/events/${currentEvent.id}?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
 
       const response = await fetch(url);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       const eventData = await response.json();
-      console.log('Event data received:', eventData);
 
       // Extract players from the event data - check multiple possible locations
       const players = eventData.players || eventData.leaderboard || eventData.field || [];
 
-      console.log(`✅ Loaded ${players.length} players from leaderboard`);
+      if (players.length > 0) {
+        console.log(`Leaderboard: ${players.length} players loaded`);
+      }
       setLeaderboard(players);
 
     } catch (error) {
-      console.error('❌ Error fetching leaderboard:', error);
+      // Silently ignore - leaderboard may not be available outside tournament hours
+      console.log('Leaderboard not available:', error.message);
     }
   };
 
