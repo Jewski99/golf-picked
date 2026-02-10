@@ -50,7 +50,7 @@ export default function Home() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('draft');
   const [currentEvent, setCurrentEvent] = useState(null);
-  const [events, setEvents] = useState([]);
+
   const [players, setPlayers] = useState([]);
   const [leaderboard, setLeaderboard] = useState([]);
   const [draftPicks, setDraftPicks] = useState([]);
@@ -99,7 +99,7 @@ export default function Home() {
 
   useEffect(() => {
     if (user) {
-      fetchEvents();
+      fetchCurrentEvent();
       fetchStandings();
       // Check admin status
       checkAdminStatus();
@@ -366,50 +366,29 @@ export default function Home() {
     }
   }, [currentEvent]);
 
-  const fetchEvents = async () => {
+  // Fetch current event from Supabase on page load
+  const fetchCurrentEvent = async () => {
     try {
-      const url = `https://use.livegolfapi.com/v1/events?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}&tour=pga-tour`;
-      console.log('Fetching events from:', url);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
 
-      const response = await fetch(url);
-      const data = await response.json();
+      const { data, error } = await supabase
+        .from('events')
+        .select('*')
+        .eq('is_current', true)
+        .single();
 
-      console.log('Events API response:', data);
-      const now = new Date();
-      
-      // Filter events - include current and upcoming
-      const relevantEvents = data.filter(e => {
-        const endDate = new Date(e.endDatetime);
-        return endDate >= now;
-      });
-      
-      setEvents(relevantEvents);
-      
-      if (relevantEvents.length > 0) {
-        let selectedEvent = relevantEvents[0];
-        
-        for (const event of relevantEvents) {
-          const startDate = new Date(event.startDatetime);
-          const endDate = new Date(event.endDatetime);
-          
-          // If tournament is currently happening (between start and end), show it
-          if (now >= startDate && now <= endDate) {
-            selectedEvent = event;
-            break;
-          }
-          
-          // If tournament hasn't started yet, this is the next one
-          if (now < startDate) {
-            selectedEvent = event;
-            break;
-          }
-        }
-        
-        console.log('Selected event:', selectedEvent);
-        setCurrentEvent(selectedEvent);
+      if (error) {
+        console.error('Error fetching current event:', error);
+        return;
+      }
+
+      if (data) {
+        console.log('Current event loaded:', data);
+        setCurrentEvent(data);
       }
     } catch (error) {
-      console.error('Error fetching events:', error);
+      console.error('Error:', error);
     }
   };
 
