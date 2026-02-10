@@ -78,6 +78,10 @@ export default function Home() {
   const [prizeReason, setPrizeReason] = useState('');
   const [adjustmentHistory, setAdjustmentHistory] = useState([]);
 
+  // Finalize tournament state
+  const [playerPrizeInputs, setPlayerPrizeInputs] = useState({});
+  const [tournamentFinalized, setTournamentFinalized] = useState(false);
+
   // Create Supabase client with placeholder values during build/SSR
   // The actual client will be created on the client-side with real env vars
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
@@ -334,10 +338,63 @@ export default function Home() {
     });
   };
 
-  // Calculate tournament winnings from LiveGolf API leaderboard
+  // Parse prize money input - supports "1500000", "1.5M", "850K", "$1,500,000"
+  const parsePrizeInput = (value) => {
+    if (!value || value.trim() === '') return 0;
+    let cleaned = value.trim().replace(/[$,]/g, '');
+    const upper = cleaned.toUpperCase();
+    if (upper.endsWith('M')) {
+      return parseFloat(upper.slice(0, -1)) * 1000000;
+    }
+    if (upper.endsWith('K')) {
+      return parseFloat(upper.slice(0, -1)) * 1000;
+    }
+    const num = parseFloat(cleaned);
+    return isNaN(num) ? 0 : num;
+  };
+
+  // Copy template of drafted players for spreadsheet lookup
+  const handleCopyTemplate = () => {
+    const picks = draftPicks
+      .filter(p => p.event_id === currentEvent?.id)
+      .sort((a, b) => a.pick_number - b.pick_number);
+    if (picks.length === 0) {
+      showAdminMessage('error', 'No draft picks found for this event');
+      return;
+    }
+    const lines = ['Player Name\tDrafted By\tPrize Money'];
+    for (const pick of picks) {
+      lines.push(`${pick.player_name}\t${pick.username}\t`);
+    }
+    navigator.clipboard.writeText(lines.join('\n')).then(() => {
+      showAdminMessage('success', `Copied ${picks.length} players to clipboard (tab-separated for spreadsheets)`);
+    }).catch(() => {
+      showAdminMessage('error', 'Failed to copy to clipboard');
+    });
+  };
+
+  // Calculate and apply tournament winnings from manual prize entry
   const calculateTournamentWinnings = async () => {
     if (!currentEvent?.id) {
       showAdminMessage('error', 'No current event selected');
+      return;
+    }
+
+    const picks = draftPicks.filter(p => p.event_id === currentEvent.id);
+    if (picks.length === 0) {
+      showAdminMessage('error', 'No draft picks found for this event');
+      return;
+    }
+
+    // Parse all inputs and check if all are zero
+    const parsedEntries = picks.map(pick => ({
+      ...pick,
+      prizeValue: parsePrizeInput(playerPrizeInputs[pick.id] || '')
+    }));
+
+    const totalAllPrizes = parsedEntries.reduce((sum, e) => sum + e.prizeValue, 0);
+    if (totalAllPrizes === 0) {
+      showAdminMessage('error', 'All prize money values are $0. Please enter winnings before finalizing.');
       return;
     }
 
@@ -345,83 +402,28 @@ export default function Home() {
     showAdminMessage('', '');
 
     try {
-      console.log('=== CALCULATING TOURNAMENT WINNINGS ===');
+      console.log('=== CALCULATING TOURNAMENT WINNINGS (MANUAL ENTRY) ===');
       console.log('Event:', currentEvent.name, '(ID:', currentEvent.id, ')');
 
-      // Step 1: Fetch draft picks for this event
-      const { data: picks, error: picksError } = await supabase
-        .from('draft_picks')
-        .select('*')
-        .eq('event_id', currentEvent.id);
-
-      if (picksError) throw new Error('Failed to fetch draft picks: ' + picksError.message);
-      if (!picks || picks.length === 0) {
-        showAdminMessage('error', 'No draft picks found for this event');
-        setAdminLoading(false);
-        return;
-      }
-
-      console.log(`Found ${picks.length} draft picks for this event`);
-
-      // Step 2: Fetch final leaderboard from LiveGolf API
-      const url = `https://use.livegolfapi.com/v1/events/${currentEvent.id}?api_key=${process.env.NEXT_PUBLIC_LIVEGOLF_API_KEY}`;
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`LiveGolf API error: HTTP ${response.status}`);
-
-      const eventData = await response.json();
-      const leaderboardData = eventData.players || eventData.leaderboard || eventData.field || [];
-
-      if (leaderboardData.length === 0) {
-        showAdminMessage('error', 'No leaderboard data found from LiveGolf API');
-        setAdminLoading(false);
-        return;
-      }
-
-      console.log(`Loaded ${leaderboardData.length} players from leaderboard`);
-
-      // Step 3: Match drafted players to leaderboard entries and get prize money
-      const userWinnings = {}; // { user_id: { username, totalWinnings, players: [] } }
-
-      for (const pick of picks) {
-        // Initialize user entry if not exists
-        if (!userWinnings[pick.user_id]) {
-          userWinnings[pick.user_id] = {
-            username: pick.username,
+      // Group winnings by user
+      const userWinnings = {};
+      for (const entry of parsedEntries) {
+        if (!userWinnings[entry.user_id]) {
+          userWinnings[entry.user_id] = {
+            username: entry.username,
             totalWinnings: 0,
             players: []
           };
         }
-
-        // Find matching player on leaderboard using fuzzy matching
-        const leaderboardEntry = leaderboardData.find(entry => {
-          const entryName = entry.name || entry.player_name || entry.playerName || '';
-          return playersMatch(pick.player_name, entryName);
+        userWinnings[entry.user_id].totalWinnings += entry.prizeValue;
+        userWinnings[entry.user_id].players.push({
+          name: entry.player_name,
+          winnings: entry.prizeValue
         });
-
-        if (leaderboardEntry) {
-          // Try all possible prize money fields
-          const prizeMoney = leaderboardEntry.earnings || leaderboardEntry.money || leaderboardEntry.prize || 0;
-          const prizeValue = typeof prizeMoney === 'string'
-            ? parseFloat(prizeMoney.replace(/[,$]/g, ''))
-            : prizeMoney;
-
-          userWinnings[pick.user_id].totalWinnings += (prizeValue || 0);
-          userWinnings[pick.user_id].players.push({
-            name: pick.player_name,
-            winnings: prizeValue || 0
-          });
-
-          console.log(`Player: ${pick.player_name} | Winnings: $${(prizeValue || 0).toLocaleString()} | Drafted by: ${pick.username}`);
-        } else {
-          userWinnings[pick.user_id].players.push({
-            name: pick.player_name,
-            winnings: 0
-          });
-          console.log(`Player: ${pick.player_name} | NOT FOUND on leaderboard | Drafted by: ${pick.username}`);
-        }
+        console.log(`Player: ${entry.player_name} | Winnings: $${entry.prizeValue.toLocaleString()} | Drafted by: ${entry.username}`);
       }
 
-      // Step 4: Log each user's tournament total
+      // Log each user's tournament total
       console.log('\n=== USER TOURNAMENT TOTALS ===');
       for (const [userId, data] of Object.entries(userWinnings)) {
         console.log(`${data.username}: $${data.totalWinnings.toLocaleString()} (${data.players.length} players)`);
@@ -430,9 +432,10 @@ export default function Home() {
         });
       }
 
-      // Step 5: Update season_standings for each user
+      // Update season_standings for each user
       console.log('\n=== UPDATING SEASON STANDINGS ===');
       let updatedCount = 0;
+      const resultSummary = [];
 
       for (const [userId, data] of Object.entries(userWinnings)) {
         if (data.totalWinnings === 0) {
@@ -440,7 +443,6 @@ export default function Home() {
           continue;
         }
 
-        // Get current standings
         const { data: currentStanding, error: fetchError } = await supabase
           .from('season_standings')
           .select('*')
@@ -467,6 +469,14 @@ export default function Home() {
 
         console.log(`${data.username}: $${oldTotal.toLocaleString()} + $${data.totalWinnings.toLocaleString()} = $${newTotal.toLocaleString()}`);
         updatedCount++;
+
+        // Format for summary message
+        const winStr = data.totalWinnings >= 1000000
+          ? `$${(data.totalWinnings / 1000000).toFixed(1)}M`
+          : data.totalWinnings >= 1000
+            ? `$${(data.totalWinnings / 1000).toFixed(0)}K`
+            : `$${data.totalWinnings.toLocaleString()}`;
+        resultSummary.push(`${data.username}: +${winStr}`);
       }
 
       console.log('\n=== TOURNAMENT WINNINGS COMPLETE ===');
@@ -476,7 +486,9 @@ export default function Home() {
       fetchStandings();
       fetchDraftOrder();
 
-      showAdminMessage('success', `Tournament winnings calculated! Updated ${updatedCount} users' season standings for ${currentEvent.name}.`);
+      setTournamentFinalized(true);
+      const summaryText = resultSummary.join(', ');
+      showAdminMessage('success', `Tournament finalized! ${summaryText}`);
     } catch (error) {
       console.error('Error calculating tournament winnings:', error);
       showAdminMessage('error', `Failed to calculate winnings: ${error.message}`);
@@ -1622,42 +1634,160 @@ Jon Rahm, ESP"
                 </button>
               </div>
 
-              {/* Section: Finalize Tournament & Calculate Winnings */}
-              <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px' }}>
-                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold', color: '#f59e0b' }}>
-                  Finalize Tournament
-                </h4>
+              {/* Section: Finalize Tournament - Manual Prize Entry */}
+              <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '16px', gridColumn: 'span 2' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold', color: '#f59e0b' }}>
+                    Finalize Tournament
+                  </h4>
+                  <button
+                    onClick={handleCopyTemplate}
+                    disabled={!currentEvent || draftPicks.filter(p => p.event_id === currentEvent?.id).length === 0}
+                    style={{
+                      padding: '6px 12px',
+                      background: '#334155',
+                      color: '#e2e8f0',
+                      border: '1px solid #475569',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '12px'
+                    }}
+                  >
+                    Copy Template for Spreadsheet
+                  </button>
+                </div>
                 <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#94a3b8' }}>
-                  Fetch final leaderboard prize money from LiveGolf API and update each user&apos;s season standings based on their drafted players&apos; earnings.
+                  Enter each drafted player&apos;s prize money below. Accepts &quot;1500000&quot;, &quot;1.5M&quot;, &quot;850K&quot;, or &quot;$1,500,000&quot;. Empty fields default to $0.
                 </p>
-                <button
-                  onClick={() => {
-                    setConfirmDialog({
-                      title: 'Confirm Finalize Tournament',
-                      message: `Are you sure you want to calculate and apply tournament winnings for "${currentEvent?.name}"? This will add each drafted player's prize money to their drafter's season standings.`,
-                      onConfirm: () => {
-                        setConfirmDialog(null);
-                        calculateTournamentWinnings();
-                      },
-                      onCancel: () => setConfirmDialog(null)
-                    });
-                  }}
-                  disabled={adminLoading || !currentEvent}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    background: '#f59e0b',
-                    color: '#000000',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: (adminLoading || !currentEvent) ? 'not-allowed' : 'pointer',
-                    fontWeight: 600,
-                    fontSize: '14px',
-                    opacity: (adminLoading || !currentEvent) ? 0.5 : 1
-                  }}
-                >
-                  Finalize Tournament &amp; Calculate Winnings
-                </button>
+
+                {tournamentFinalized ? (
+                  <div style={{
+                    padding: '16px',
+                    background: '#064e3b',
+                    border: '1px solid #10b981',
+                    borderRadius: '8px',
+                    textAlign: 'center'
+                  }}>
+                    <p style={{ margin: 0, color: '#10b981', fontWeight: 600, fontSize: '15px' }}>
+                      Tournament finalized on {new Date().toLocaleDateString()}
+                    </p>
+                    <p style={{ margin: '8px 0 0 0', color: '#94a3b8', fontSize: '13px' }}>
+                      Season standings have been updated. Use &quot;Manual Prize Money Override&quot; below for corrections.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {(() => {
+                      const eventPicks = draftPicks
+                        .filter(p => p.event_id === currentEvent?.id)
+                        .sort((a, b) => (a.username || '').localeCompare(b.username || '') || a.pick_number - b.pick_number);
+
+                      if (eventPicks.length === 0) {
+                        return (
+                          <p style={{ color: '#64748b', fontSize: '14px', textAlign: 'center', padding: '20px' }}>
+                            No draft picks found for this event.
+                          </p>
+                        );
+                      }
+
+                      // Group by user for visual separation
+                      let currentUser = '';
+                      return (
+                        <div style={{ maxHeight: '500px', overflowY: 'auto', marginBottom: '12px' }}>
+                          {eventPicks.map((pick) => {
+                            const showUserHeader = pick.username !== currentUser;
+                            if (showUserHeader) currentUser = pick.username;
+                            return (
+                              <div key={pick.id}>
+                                {showUserHeader && (
+                                  <div style={{
+                                    padding: '6px 10px',
+                                    marginTop: pick === eventPicks[0] ? '0' : '8px',
+                                    background: '#1e293b',
+                                    borderRadius: '4px 4px 0 0',
+                                    borderBottom: '1px solid #334155',
+                                    fontSize: '13px',
+                                    fontWeight: 600,
+                                    color: '#60a5fa'
+                                  }}>
+                                    {pick.username}
+                                  </div>
+                                )}
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '10px',
+                                  padding: '8px 10px',
+                                  background: '#1e293b',
+                                  borderBottom: '1px solid #0f172a'
+                                }}>
+                                  <span style={{
+                                    flex: 1,
+                                    color: '#e2e8f0',
+                                    fontSize: '14px',
+                                    minWidth: 0,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap'
+                                  }}>
+                                    {pick.player_name}
+                                  </span>
+                                  <span style={{ color: '#94a3b8', fontSize: '12px', flexShrink: 0 }}>$</span>
+                                  <input
+                                    type="text"
+                                    value={playerPrizeInputs[pick.id] || ''}
+                                    onChange={(e) => setPlayerPrizeInputs(prev => ({ ...prev, [pick.id]: e.target.value }))}
+                                    placeholder="0"
+                                    style={{
+                                      width: '120px',
+                                      padding: '6px 8px',
+                                      background: '#0f172a',
+                                      border: '1px solid #334155',
+                                      borderRadius: '4px',
+                                      color: '#ffffff',
+                                      fontSize: '14px',
+                                      textAlign: 'right',
+                                      flexShrink: 0
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+
+                    <button
+                      onClick={() => {
+                        setConfirmDialog({
+                          title: 'Confirm Finalize Tournament',
+                          message: `Are you sure you want to apply the entered prize money for "${currentEvent?.name}"? This will add each player's winnings to their drafter's season standings.`,
+                          onConfirm: () => {
+                            setConfirmDialog(null);
+                            calculateTournamentWinnings();
+                          },
+                          onCancel: () => setConfirmDialog(null)
+                        });
+                      }}
+                      disabled={adminLoading || !currentEvent || tournamentFinalized}
+                      style={{
+                        width: '100%',
+                        padding: '12px 16px',
+                        background: '#f59e0b',
+                        color: '#000000',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: (adminLoading || !currentEvent || tournamentFinalized) ? 'not-allowed' : 'pointer',
+                        fontWeight: 600,
+                        fontSize: '14px',
+                        opacity: (adminLoading || !currentEvent || tournamentFinalized) ? 0.5 : 1
+                      }}
+                    >
+                      Calculate &amp; Update Standings
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* Section 3: Manual Prize Money Override */}
